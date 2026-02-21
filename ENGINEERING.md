@@ -26,7 +26,7 @@ See [architecture.drawio](architecture.drawio) (open in draw.io or VS Code with 
 | Fallback LLM | OpenAI gpt-4o-mini | — |
 | Embeddings | OpenAI text-embedding-3-small | 1536D |
 | Linter | Biome | 2.x |
-| Analytics | Datadog HTTP API | — |
+| Analytics | PostHog HTTP API | — |
 | Deployment | Vercel | — |
 
 ---
@@ -40,7 +40,7 @@ lib/
   scoring.ts       Multi-signal weighted ranking: semantic + audience + values + tone + engagement.
   claude.ts        LLM framing generation: Claude primary, OpenAI fallback, shared prompt builder.
   experiments.ts   Stateless A/B testing via hash-based deterministic variant assignment.
-  analytics.ts     Datadog HTTP API: logEvent() for structured logs, sendMetric() for gauges.
+  analytics.ts     PostHog HTTP API: logEvent() for structured events, computeLLMCost() / computeEmbeddingCost() for cost math.
 
 app/
   page.tsx              Assignment form + SSE streaming client
@@ -166,11 +166,42 @@ All tunable parameters live in the `SETTINGS` block. Values in `DEFAULTS` are th
 
 Add to `.env.local` and Vercel project environment variables:
 ```
-POSTHOG_API_KEY=phc_...
-POSTHOG_HOST=https://app.posthog.com    # or your self-hosted URL
+POSTHOG_API_KEY=phc_...                              # Server-side events
+POSTHOG_HOST=https://app.posthog.com                 # or your self-hosted URL
+NEXT_PUBLIC_POSTHOG_KEY=phc_...                      # Client-side (same value)
 ```
 
-If `POSTHOG_API_KEY` is not set, events fall back to `console.log` — no PostHog account required locally.
+Note: `NEXT_PUBLIC_POSTHOG_HOST` is no longer needed. All client-side PostHog traffic is proxied through `/ingest` (see Reverse Proxy below), so the host is encoded in the route handler rather than env vars.
+
+If `POSTHOG_API_KEY` is not set, server-side events fall back to `console.log`. If `NEXT_PUBLIC_POSTHOG_KEY` is not set, client-side tracking and session replay are silently disabled — no PostHog account required locally.
+
+### Reverse Proxy (CORS fix)
+
+PostHog's session recorder script is served from `us-assets.i.posthog.com`, which is cross-origin from both `localhost` and production domains. Browsers block dynamically-injected `<script>` tags that load cross-origin, preventing session replay from starting.
+
+The fix: `proxy.ts` (Next.js Proxy, Edge runtime — Next.js 16+ replacement for `middleware.ts`) proxies all PostHog traffic through the app's own domain:
+
+```
+/ingest/static/* → https://us-assets.i.posthog.com/static/*   (recorder script, toolbar)
+/ingest/*        → https://us.i.posthog.com/*                  (events, /decide/)
+```
+
+Both `posthog.init()` calls (in `instrumentation-client.ts` and `PostHogProvider.tsx`) set `api_host: "/ingest"` so the SDK sends all requests to the same origin. The proxy fetches from PostHog server-side and returns the response to the browser, bypassing the cross-origin policy entirely.
+
+**Why Proxy (Edge runtime) and not a Route Handler or `next.config.ts` rewrites?**
+- `next.config.ts` rewrites: work on Vercel (CDN edge) but fail silently in the Next.js dev server.
+- Route Handler (`app/ingest/[...path]/route.ts`): lazily compiled — the first request triggers a ~600ms compilation window. PostHog loads the recorder script immediately on init, hitting this window and failing silently. No retry → recording never starts.
+- **`proxy.ts`** (Edge runtime): compiled at server startup, available with zero latency before any React code or route handler runs. `posthog-recorder.js` loads reliably on the first page view.
+
+Conditional request headers (`If-None-Match`, `If-Modified-Since`) are stripped before forwarding. Edge runtime's `Response` constructor rejects status 304, so stripping these headers forces the upstream CDN to always return 200 with the full body.
+
+`posthog-recorder.js` (~300KB) is buffered via `.arrayBuffer()` before forwarding to prevent streaming truncation. Smaller files and POST bodies are streamed normally.
+
+### Session Replay
+
+Session replay is enabled via `instrumentation-client.ts`, which Next.js 15.3+ runs before the React tree mounts. This means recording starts capturing from the very first user interaction, not after the React provider's `useEffect` fires. The `defaults: "2026-01-30"` option activates PostHog's recommended replay configuration.
+
+To watch recordings: PostHog → Session Replay. Interact with the app for at least 10 seconds to generate a recording.
 
 ### What is tracked
 
@@ -179,22 +210,24 @@ All events are captured via PostHog's `/capture/` endpoint. Metric values (laten
 | Event | When | Key properties |
 |-------|------|---------------|
 | `assignment_submitted` | On form submit | topic, all assignment fields, variants |
-| `api_embedding` | After embedding call | latencyMs |
-| `$ai_generation` | After LLM call | `$ai_provider`, `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency` (s), `$ai_total_cost_usd`, provider, fallback |
+| `$ai_generation` (embedding) | After embedding API call | `$ai_provider: "openai"`, `$ai_model: "text-embedding-3-small"`, `$ai_input_tokens`, `$ai_latency` (s), `$ai_total_cost_usd`, `$ai_trace_id` |
+| `$ai_generation` (framing) | After LLM framing call | `$ai_provider` (openai/anthropic), `$ai_model`, `$ai_input_tokens`, `$ai_output_tokens`, `$ai_latency` (s), `$ai_total_cost_usd`, `$ai_trace_id`, provider, fallback |
 | `match_completed` | After full match | provider, topCreatorIds, latencyMs, variants |
 | `provider_fallback` | When Claude fails | from, to, reason, variants |
 | `ui_interaction` | Client-side actions | action |
 | `$pageview` | Each page navigation | pathname (auto-captured by posthog-js) |
 
+Both `$ai_generation` events for the same request share the same `$ai_trace_id`, so PostHog's LLM Observability trace view groups the embedding call and the framing call into a single trace. This makes per-request total cost and latency visible without custom Insights queries.
+
 ### Recommended Insights
 
 In PostHog → Insights, create Trends queries on:
 
-- **LLM dashboard** — PostHog → LLM Observability (auto-populated by `$ai_generation` events)
-- Average `$ai_latency` where event = `$ai_generation`, broken down by `$ai_provider`
-- Sum of `$ai_total_cost_usd` where event = `$ai_generation` over time
+- **LLM dashboard** — PostHog → LLM Observability (auto-populated by `$ai_generation` events; use trace view for per-request breakdown)
+- Average `$ai_latency` where event = `$ai_generation`, broken down by `$ai_provider` and `$ai_model`
+- Sum of `$ai_total_cost_usd` where event = `$ai_generation` over time (covers both embedding + framing costs)
 - Count of `provider_fallback` ÷ count of `match_completed` (fallback rate)
-- Average `latencyMs` where event = `api_embedding`
+- Filter `$ai_generation` by `$ai_model = "text-embedding-3-small"` to isolate embedding cost and latency
 
 ---
 

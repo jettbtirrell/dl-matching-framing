@@ -153,7 +153,44 @@ JSON files work for the prototype scope. The module structure already draws the 
 
 ---
 
-### 10. What fields should be required vs. optional?
+### 10. Where should brief quality validation live — prompt or code?
+
+During testing, submitting near-empty fields (e.g. "a" in every box) produced confident-sounding but entirely fabricated framings. The LLM was using the creator profiles to construct a plausible campaign in the absence of a real one.
+
+**First attempt: prompt instruction.**
+Added a BRIEF QUALITY CHECK block to the prompt telling the model to detect insufficient input and respond with a disclaimer rather than invented content. This failed: the model sees rich creator profiles alongside the sparse brief, infers a plausible campaign from the creator data, and ignores the instruction. Asking an LLM to override its own inference tendency with a prompt rule is unreliable.
+
+**Decision: code-side pre-flight check.**
+`generateFramings()` in `lib/claude.ts` now checks word count on the three required fields before building the prompt or making any API call. If any required field has fewer than 3 words, it returns canned "brief insufficient" text without calling the LLM at all. The response explains what a useful brief needs.
+
+This is more reliable (deterministic), cheaper (saves an LLM call on garbage input), and faster. It also cleanly separates concerns: the LLM is only asked to do what it's good at — writing framings for real briefs — not to perform input validation.
+
+**What this reinforces:** input validation is a deterministic problem. It belongs in code, not in a prompt. This was already a stated principle in the architecture; the bug made it concrete.
+
+---
+
+### 11. How should the two AI calls per request be tracked in observability?
+
+Each match request makes two AI calls: one OpenAI embedding call and one LLM framing call (Claude or OpenAI). Both consume tokens and incur cost; both need to appear in the observability dashboard.
+
+**First state of the code:** only the framing call emitted a `$ai_generation` event (PostHog's LLM Observability schema). The embedding call was logged as a custom `api_embedding` event with only latency — no tokens, no cost, not visible in the LLM dashboard. `embedBatch()` didn't even return token usage from the API response.
+
+**What was missing:**
+- The embedding call was invisible in the LLM dashboard
+- No way to compute per-request total cost (embedding cost was never captured)
+- No link between the two calls within the same request
+
+**Decision: emit `$ai_generation` for both, linked by `$ai_trace_id`**
+
+PostHog's `$ai_generation` schema accepts any model/provider combination — not just LLMs. Emitting it for the embedding call (provider: `openai`, model: `text-embedding-3-small`, output tokens: 0) populates both calls into the LLM Observability dashboard.
+
+`$ai_trace_id` is a property that groups multiple `$ai_generation` events from one request into a single trace. Both events get the same UUID generated at request start. This makes per-request total cost (`embedding cost + framing cost`) visible in one place without custom Insights queries.
+
+The implementation required bubbling token usage from `embedBatch()` → `getTopCreators()` → `route.ts`. Each layer now exposes `totalTokens` / `embeddingTokens` in its return value. The public `embed()` convenience wrapper still returns just a vector (its callers don't need token counts), keeping the interface change minimal.
+
+---
+
+### 12. What fields should be required vs. optional?
 
 **Required:** Topic, key takeaway, context. These are the minimum for a meaningful match — without them, the embedding has nothing to go on, and the LLM has no brief to frame against.
 

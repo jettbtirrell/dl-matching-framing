@@ -9,7 +9,7 @@
     "lint": "biome check",
     "format": "biome format --write",
     "generate-embeddings": "node scripts/generate-embeddings.mjs",
-    "export-diagram": "drawio --export --format png --output architecture.png architecture.drawio"
+    "check-readme": "node scripts/check-readme.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",

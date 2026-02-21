@@ -19,8 +19,11 @@
  *   match_completed       — scoring + framing done, results sent to client
  *   provider_fallback     — primary LLM failed, fallback took over
  *   ui_interaction        — client-side action (button click, page view)
- *   api_embedding         — per-request embedding call: latency
- *   api_llm               — per-request LLM call: provider, latency, tokens, cost
+ *   $ai_generation        — PostHog LLM Observability schema; emitted for both
+ *                           the embedding call (provider: openai, model: text-embedding-3-small)
+ *                           and the framing call (provider: anthropic or openai).
+ *                           Both events share a $ai_trace_id so PostHog groups
+ *                           them into one trace per request.
  *
  * All metric values (latency, token counts, cost) are captured as event
  * properties and can be visualized in PostHog Insights with Trends queries.
@@ -35,15 +38,14 @@ export type EventType =
   | "match_completed"      // scoring + framing finished, results sent to client
   | "provider_fallback"    // primary LLM failed; logged before the fallback call
   | "ui_interaction"       // client-side action (button click, page view, etc.)
-  | "api_embedding"        // per-request embedding call with latency
-  | "$ai_generation";      // PostHog LLM Observability event — populates the LLM analytics dashboard
+  | "$ai_generation";      // PostHog LLM Observability — covers embedding + framing calls
 
 // ---------------------------------------------------------------------------
 // PostHog configuration
 // ---------------------------------------------------------------------------
 
 const POSTHOG_API_KEY = process.env.POSTHOG_API_KEY ?? "";
-const POSTHOG_HOST = process.env.POSTHOG_HOST ?? "https://app.posthog.com";
+const POSTHOG_HOST = process.env.POSTHOG_HOST ?? "https://us.i.posthog.com";
 const ENV = process.env.NODE_ENV ?? "development";
 
 // ---------------------------------------------------------------------------
@@ -101,9 +103,10 @@ const COST_PER_TOKEN = {
   claude_output: 1.25 / 1_000_000,  // Claude Haiku output
   openai_input:  0.15 / 1_000_000,  // gpt-4o-mini input
   openai_output: 0.60 / 1_000_000,  // gpt-4o-mini output
+  embedding:     0.02 / 1_000_000,  // text-embedding-3-small (total tokens)
 } as const;
 
-/** Estimate USD cost for a completed LLM call. */
+/** Estimate USD cost for a completed LLM framing call. */
 export function computeLLMCost(
   provider: "claude" | "openai" | "openai-fallback",
   inputTokens: number,
@@ -119,4 +122,9 @@ export function computeLLMCost(
     inputTokens * COST_PER_TOKEN.openai_input +
     outputTokens * COST_PER_TOKEN.openai_output
   );
+}
+
+/** Estimate USD cost for an embedding call (text-embedding-3-small). */
+export function computeEmbeddingCost(totalTokens: number): number {
+  return totalTokens * COST_PER_TOKEN.embedding;
 }

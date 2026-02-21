@@ -68,16 +68,22 @@ const ALL_CREATORS = Object.values(creatorsData) as Creator[];
 // Main export
 // ---------------------------------------------------------------------------
 
+export interface TopCreatorsResult {
+  creators: ScoredCreator[];
+  /** Total tokens used by the assignment embedding call — passed to analytics. */
+  embeddingTokens: number;
+}
+
 /**
  * Score all creators against the assignment, apply the non-US penalty,
- * sort descending, and return the top N.
+ * sort descending, and return the top N alongside the embedding token count.
  *
  * All assignment embeddings (base + optional dimensions) are fetched in one
  * batch call. Creator embeddings are loaded from the module-level cache.
  */
 export async function getTopCreators(
   assignment: Assignment,
-): Promise<ScoredCreator[]> {
+): Promise<TopCreatorsResult> {
   // ── Build the batch of assignment texts to embed ──────────────────────────
   // Index 0 is always the full-profile query. Optional dimension texts are
   // appended when the user has filled in the corresponding field.
@@ -98,10 +104,13 @@ export async function getTopCreators(
   }
 
   // ── Embed assignment + fetch creator cache in parallel ────────────────────
-  const [assignmentVecs, creatorEmbeddings] = await Promise.all([
+  const [embedResult, creatorEmbeddings] = await Promise.all([
     embedBatch(assignmentTexts),
     getCreatorEmbeddings(),
   ]);
+
+  const assignmentVecs  = embedResult.vectors;
+  const embeddingTokens = embedResult.totalTokens;
 
   const baseVec     = assignmentVecs[0];
   const audienceVec = dimIdx.audience !== undefined ? assignmentVecs[dimIdx.audience] : null;
@@ -177,5 +186,5 @@ export async function getTopCreators(
 
   // Sort highest score first, take topN
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, config.matching.topN);
+  return { creators: scored.slice(0, config.matching.topN), embeddingTokens };
 }

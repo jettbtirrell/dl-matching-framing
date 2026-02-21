@@ -134,12 +134,23 @@ export function cosineSimilarity(a: number[], b: number[]): number {
 // ---------------------------------------------------------------------------
 
 /**
+ * The result of an embedding API call: normalized vectors plus the token count
+ * from the API usage field. Token count is used by the caller (scoring.ts /
+ * route.ts) to emit a $ai_generation event with accurate cost tracking.
+ */
+export interface EmbedBatchResult {
+  vectors: number[][];
+  /** Total tokens consumed — OpenAI usage.total_tokens from the response. */
+  totalTokens: number;
+}
+
+/**
  * Call the OpenAI embeddings API for a batch of texts in one round-trip.
- * Returns normalized vectors in the same order as the input.
+ * Returns normalized vectors in the same order as the input, plus token usage.
  * Exported so lib/scoring.ts can batch assignment dimension texts with the
  * base assignment embedding in a single API call.
  */
-export async function embedBatch(texts: string[]): Promise<number[][]> {
+export async function embedBatch(texts: string[]): Promise<EmbedBatchResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
 
@@ -162,20 +173,25 @@ export async function embedBatch(texts: string[]): Promise<number[][]> {
 
   const json = (await res.json()) as {
     data: Array<{ embedding: number[]; index: number }>;
+    usage: { prompt_tokens: number; total_tokens: number };
   };
 
   // Sort by index to guarantee input order (API typically preserves it,
   // but the spec doesn't guarantee it for large batches)
   const ordered = json.data.sort((a, b) => a.index - b.index);
-  return ordered.map((d) => normalize(d.embedding));
+  return {
+    vectors: ordered.map((d) => normalize(d.embedding)),
+    totalTokens: json.usage.total_tokens,
+  };
 }
 
 /**
  * Embed a single text string and return the normalized vector.
+ * Token usage is discarded — use embedBatch directly when you need it.
  */
 export async function embed(text: string): Promise<number[]> {
-  const [vec] = await embedBatch([text]);
-  return vec;
+  const { vectors } = await embedBatch([text]);
+  return vectors[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +256,7 @@ async function embedCreatorBatch(
     texts.push(creatorValuesText(c));
     texts.push(creatorToneText(c));
   }
-  const vecs = await embedBatch(texts);
+  const { vectors: vecs } = await embedBatch(texts);
   return creators.map((_, i) => ({
     full:     vecs[i * 4],
     audience: vecs[i * 4 + 1],

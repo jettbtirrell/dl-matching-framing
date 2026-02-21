@@ -21,6 +21,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Assignment, MatchResult, ScoredCreator } from "@/types";
 import { config } from "@/lib/config";
 import type { LLMProviderName } from "@/lib/config";
+import { logEvent, computeLLMCost } from "@/lib/analytics";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -117,9 +118,9 @@ ${creatorSummaries}
 YOUR TASK:
 For each creator, write two things:
 
-1. matchExplanation (1–3 sentences): Why this specific creator is a strong fit for this specific assignment. Reference their actual niche, tone, audience, or values — do NOT write generic praise like "they have great engagement." Be concrete.
+1. matchExplanation (1–3 sentences): Why this specific creator is a strong fit for this specific assignment. Reference their actual niche, tone, audience, or values — do NOT write generic praise like "they have great engagement." Be concrete. Do NOT invent campaign details that aren't explicitly stated in the brief.
 
-2. suggestedFraming (2–4 sentences): A concrete, personalized content concept this creator could execute. Tailor it to their established style and their audience's interests. Respect the assignment constraints from the context field. Make each creator's framing distinct — do not repeat the same angle across all three.
+2. suggestedFraming (2–4 sentences): A concrete, personalized content concept this creator could execute. Tailor it to their established style and their audience's interests. Respect any constraints stated in the context field. Make each creator's framing distinct — do not repeat the same angle across all three. Do NOT fill gaps in the brief with assumptions about what the campaign might be.
 
 Respond with valid JSON only. No markdown, no code fences, no explanation outside the JSON:
 {
@@ -159,6 +160,49 @@ function parseFramingResponse(raw: string, provider: string): FramingResponse {
     throw new Error(`${provider} response missing 'creators' array`);
   }
   return parsed;
+}
+
+// ---------------------------------------------------------------------------
+// Brief quality gate
+// ---------------------------------------------------------------------------
+
+/** Minimum meaningful word count for each required brief field. */
+const MIN_BRIEF_WORDS = 3;
+
+function wordCount(s: string): number {
+  return s.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Returns true if the brief contains enough real content to generate
+ * meaningful framings. Checks word count on the three required fields.
+ *
+ * WHY CODE, NOT PROMPT?
+ * Asking the LLM to self-police a quality check is unreliable — it sees rich
+ * creator profiles alongside the sparse brief and uses them to infer a
+ * plausible campaign anyway. A deterministic pre-flight check short-circuits
+ * the LLM call entirely when the brief is clearly insufficient.
+ */
+function isBriefSufficient(assignment: Assignment): boolean {
+  return (
+    wordCount(assignment.topic)       >= MIN_BRIEF_WORDS &&
+    wordCount(assignment.keyTakeaway) >= MIN_BRIEF_WORDS &&
+    wordCount(assignment.context)     >= MIN_BRIEF_WORDS
+  );
+}
+
+/** Canned results returned when the brief fails the quality gate. No LLM call is made. */
+function insufficientBriefResults(scoredCreators: ScoredCreator[]): MatchResult[] {
+  return scoredCreators.map((sc) => ({
+    creator: sc.creator,
+    score: sc.score,
+    matchExplanation:
+      "The assignment brief doesn't contain enough information to evaluate this match. " +
+      "A useful brief needs at minimum a clear topic, a specific key takeaway, and campaign context.",
+    suggestedFraming:
+      "To generate a meaningful framing, please fill in a real campaign topic, " +
+      "what you want the audience to walk away knowing or doing, and any relevant context or constraints. ",
+  }));
 }
 
 /**
@@ -255,7 +299,7 @@ async function callOpenAI(prompt: string): Promise<LLMCallResult> {
 
 export interface FramingResult {
   results: MatchResult[];
-  /** Which model actually generated the framings — used for analytics logging. */
+  /** Which model actually generated the framings. */
   provider: "claude" | "openai" | "openai-fallback";
   /** Set when provider is "openai-fallback" — the error that caused Claude to fail. */
   fallbackReason?: string;
@@ -274,67 +318,95 @@ export interface FramingResult {
  *   "claude"  (default) — try Claude first, fall back to OpenAI on any failure
  *   "openai"            — skip Claude and call OpenAI directly (A/B experiment)
  *
- * Returns { results, provider } so the caller can log which model actually ran.
+ * options.analytics:
+ *   When provided, a $ai_generation event is fired to PostHog automatically
+ *   for whichever provider ran. Adding a new LLM provider here gets observability
+ *   for free — no changes needed in route.ts.
  */
 export async function generateFramings(
   scoredCreators: ScoredCreator[],
   assignment: Assignment,
-  options?: { preferredProvider?: LLMProviderName },
+  options?: { preferredProvider?: LLMProviderName; analytics?: { sessionId: string; traceId: string } },
 ): Promise<FramingResult> {
+  if (!isBriefSufficient(assignment)) {
+    return {
+      results: insufficientBriefResults(scoredCreators),
+      provider: "claude",
+      latencyMs: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+    };
+  }
+
   const prompt = buildPrompt(scoredCreators, assignment);
   const preferred = options?.preferredProvider ?? config.llm.defaultProvider;
   const llmStart = Date.now();
 
+  // Accumulate the result from whichever provider runs so we can log once
+  // at the end with a single, consistent PostHog event.
+  let raw: string;
+  let inputTokens: number;
+  let outputTokens: number;
+  let provider: FramingResult["provider"];
+  let fallbackReason: string | undefined;
+  let parsed: FramingResponse;
+
   // --- Direct OpenAI path (A/B experiment variant) ---
   if (preferred === "openai") {
-    const { text: raw, inputTokens, outputTokens } = await callOpenAI(prompt);
-    const parsed = parseFramingResponse(raw, "OpenAI");
-    if (process.env.NODE_ENV === "development") {
-      console.log(
-        "[openai] Returned uniqueIds:",
-        parsed.creators.map((c) => c.uniqueId),
-      );
+    ({ text: raw, inputTokens, outputTokens } = await callOpenAI(prompt));
+    parsed = parseFramingResponse(raw, "OpenAI");
+    provider = "openai";
+  } else {
+    // --- Claude with OpenAI fallback (default path) ---
+    try {
+      ({ text: raw, inputTokens, outputTokens } = await callClaude(prompt));
+      parsed = parseFramingResponse(raw, "Claude");
+      provider = "claude";
+    } catch (claudeError) {
+      fallbackReason =
+        claudeError instanceof Error ? claudeError.message : String(claudeError);
+      console.error("[claude] Claude failed, falling back to OpenAI:", fallbackReason);
+      ({ text: raw, inputTokens, outputTokens } = await callOpenAI(prompt));
+      parsed = parseFramingResponse(raw, "OpenAI (fallback)");
+      provider = "openai-fallback";
     }
-    return {
-      results: mergeFramings(scoredCreators, parsed),
-      provider: "openai",
-      latencyMs: Date.now() - llmStart,
-      inputTokens,
-      outputTokens,
-    };
   }
 
-  // --- Claude with OpenAI fallback (default path) ---
-  try {
-    const { text: raw, inputTokens, outputTokens } = await callClaude(prompt);
-    const parsed = parseFramingResponse(raw, "Claude");
-    if (process.env.NODE_ENV === "development") {
-      console.log(
-        "[claude] Returned uniqueIds:",
-        parsed.creators.map((c) => c.uniqueId),
-      );
-    }
-    return {
-      results: mergeFramings(scoredCreators, parsed),
-      provider: "claude",
-      latencyMs: Date.now() - llmStart,
-      inputTokens,
-      outputTokens,
-    };
-  } catch (claudeError) {
-    const fallbackReason =
-      claudeError instanceof Error ? claudeError.message : String(claudeError);
-    console.error("[claude] Claude failed, falling back to OpenAI:", fallbackReason);
-
-    const { text: raw, inputTokens, outputTokens } = await callOpenAI(prompt);
-    const parsed = parseFramingResponse(raw, "OpenAI (fallback)");
-    return {
-      results: mergeFramings(scoredCreators, parsed),
-      provider: "openai-fallback",
-      fallbackReason,
-      latencyMs: Date.now() - llmStart,
-      inputTokens,
-      outputTokens,
-    };
+  if (process.env.NODE_ENV === "development") {
+    console.log(
+      `[${provider}] Returned uniqueIds:`,
+      parsed.creators.map((c) => c.uniqueId),
+    );
   }
+
+  const latencyMs = Date.now() - llmStart;
+
+  // Fire the PostHog $ai_generation event here so any new provider added to
+  // this file automatically gets LLM Observability without touching route.ts.
+  if (options?.analytics) {
+    const { sessionId, traceId } = options.analytics;
+    const isOpenAI = provider === "openai" || provider === "openai-fallback";
+    void logEvent("$ai_generation", sessionId, {
+      $ai_provider:       isOpenAI ? "openai" : "anthropic",
+      $ai_model:          isOpenAI ? config.llm.providers.openai.model : config.llm.providers.claude.model,
+      $ai_input_tokens:   inputTokens,
+      $ai_output_tokens:  outputTokens,
+      $ai_latency:        latencyMs / 1000,
+      $ai_total_cost_usd: computeLLMCost(provider, inputTokens, outputTokens),
+      $ai_trace_id:       traceId,
+      $ai_input:          [{ role: "user", content: prompt }],
+      $ai_output_choices: [{ role: "assistant", content: raw }],
+      provider,
+      fallback: provider === "openai-fallback",
+    });
+  }
+
+  return {
+    results: mergeFramings(scoredCreators, parsed),
+    provider,
+    fallbackReason,
+    latencyMs,
+    inputTokens,
+    outputTokens,
+  };
 }

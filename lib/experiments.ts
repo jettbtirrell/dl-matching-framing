@@ -50,7 +50,7 @@ export const EXPERIMENTS: ExperimentConfig[] = [
     name: "llm_provider",
     variants: ["claude", "openai"],
     weights: [0.8, 0.2], // 80% Claude Haiku, 20% OpenAI gpt-4o-mini
-    enabled: true,
+    enabled: false,
     description:
       "Test gpt-4o-mini as a primary framing provider against Claude Haiku. " +
       "Measures whether OpenAI produces meaningfully different framing quality.",
@@ -131,6 +131,14 @@ export function getVariant(sessionId: string, experimentName: string): string {
     return experiment?.variants[0] ?? "control";
   }
   return assignVariant(sessionId, experiment);
+}
+
+/**
+ * Returns true if the named experiment is currently active.
+ * Use this to decide whether to read getVariant() or fall back to config defaults.
+ */
+export function isExperimentEnabled(name: string): boolean {
+  return EXPERIMENTS.find((e) => e.name === name)?.enabled ?? false;
 }
 
 /**

@@ -53,7 +53,9 @@ NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com  # Client-side host
 | `lib/scoring.ts` | Multi-signal weighted ranking: semantic + audience + values + tone + engagement |
 | `lib/claude.ts` | LLM framing: Claude primary, OpenAI fallback, shared `buildPrompt` |
 | `lib/experiments.ts` | Stateless A/B testing via `stableHash(sessionId + ":" + experimentName)` |
-| `lib/analytics.ts` | Datadog HTTP API: `logEvent()` for logs, `sendMetric()` for gauges, `computeLLMCost()` |
+| `lib/analytics.ts` | PostHog HTTP API: `logEvent()` for structured events, `computeLLMCost()` for cost estimates |
+| `instrumentation-client.ts` | PostHog init + session replay — runs before React mounts (Next.js 15.3+) |
+| `components/PostHogProvider.tsx` | React context wrapper + SPA `$pageview` tracking |
 | `app/api/match/route.ts` | Core SSE endpoint — orchestrates embedding → scoring → framing → analytics |
 | `app/api/events/route.ts` | Client-side UI event ingestion |
 | `app/page.tsx` | Assignment form + SSE streaming client |
@@ -66,11 +68,8 @@ NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com  # Client-side host
 
 ## Common Tasks
 
-### Add a Creator
-1. Add an entry to `data/creators.json`. Key is `uniqueId` (TikTok handle without `@`).
-   Required fields: `uniqueId`, `nickname`, `bio`, `followerCount`, `heartCount`, `region`, `analysis`.
-2. Run `npm run generate-embeddings` — updates `data/creator-embeddings.json`.
-3. Commit both files.
+### Update Creators Embeddings
+Run `npm run generate-embeddings` — updates `data/creator-embeddings.json`.
 
 ### Tune Scoring Weights
 Edit `SETTINGS.matching.dimensionWeights` in `lib/config.ts`. Weights are normalized at runtime — they don't need to sum to 1. Set a weight to `0` to disable a dimension.
@@ -115,6 +114,6 @@ In `lib/config.ts`, set `matching.nonUSPenalty` to a value less than `1.0` (e.g.
 | Input validation | TypeScript + explicit checks |
 | Session / cookie management | Standard HTTP cookies |
 | A/B variant assignment | `stableHash()` in `lib/experiments.ts` — must be deterministic |
-| Analytics logging | Direct Datadog HTTP API (`lib/analytics.ts`) |
+| Analytics logging | PostHog HTTP API (`lib/analytics.ts`) |
 | Error messages | Standard HTTP responses |
 | Routing decisions | Next.js App Router |

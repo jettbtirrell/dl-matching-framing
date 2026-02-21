@@ -48,7 +48,9 @@ function CreatorAvatar({
   nickname: string;
   size?: number;
 }) {
-  const [hasError, setHasError] = useState(false);
+  // Skip the network request entirely for known placeholder URLs.
+  // example.com is never a real avatar host — go straight to the initials fallback.
+  const [hasError, setHasError] = useState(avatarUrl.includes("example.com"));
 
   // Derive initials from nickname: "Alex R." → "AR", "Dr. Noor A." → "DN"
   const initials = nickname

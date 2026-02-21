@@ -38,8 +38,8 @@
 
 import type { NextRequest } from "next/server";
 import { generateFramings } from "@/lib/claude";
-import { logEvent, computeLLMCost } from "@/lib/analytics";
-import { getAllVariants, getVariant } from "@/lib/experiments";
+import { logEvent, computeEmbeddingCost } from "@/lib/analytics";
+import { getAllVariants, getVariant, isExperimentEnabled } from "@/lib/experiments";
 import { getTopCreators } from "@/lib/scoring";
 import { config } from "@/lib/config";
 import type { Assignment } from "@/types";
@@ -127,6 +127,9 @@ export async function POST(request: NextRequest) {
       };
 
       const startMs = Date.now();
+      // Shared trace ID links the embedding $ai_generation and the framing
+      // $ai_generation in PostHog's LLM Observability trace view.
+      const traceId = crypto.randomUUID();
 
       try {
         // Step 1: Semantic scoring — embeds the assignment and computes cosine
@@ -135,39 +138,45 @@ export async function POST(request: NextRequest) {
         // Send the scored creators immediately so the client can render creator
         // cards while Claude is still working on framings.
         const embedStart = Date.now();
-        const topCreators = await getTopCreators(assignment);
+        const { creators: topCreators, embeddingTokens } = await getTopCreators(assignment);
         const embedLatencyMs = Date.now() - embedStart;
 
-        void logEvent("api_embedding", sessionId, { latencyMs: embedLatencyMs });
+        // Log the embedding call as a $ai_generation event so it appears in
+        // PostHog's LLM Observability dashboard alongside the framing call.
+        const embedCostUsd = computeEmbeddingCost(embeddingTokens);
+        const embedInput = [assignment.topic, assignment.keyTakeaway, assignment.context]
+          .filter(Boolean).join(" | ");
+        void logEvent("$ai_generation", sessionId, {
+          $ai_provider:       "openai",
+          $ai_model:          config.embeddings.model,
+          $ai_input_tokens:   embeddingTokens,
+          $ai_output_tokens:  0,
+          $ai_latency:        embedLatencyMs / 1000, // PostHog expects seconds
+          $ai_total_cost_usd: embedCostUsd,
+          $ai_trace_id:       traceId,
+          $ai_input:          [{ role: "user", content: embedInput }],
+        });
 
         // Include variant assignments so the client can apply A/B UI changes.
         send({ type: "scored", creators: topCreators, variants });
 
         // Step 2: LLM framing — routed to Claude or OpenAI based on the
         // llm_provider experiment variant assigned to this session.
-        const llmVariant = getVariant(sessionId, "llm_provider") as
-          | "claude"
-          | "openai";
+        // Only read the A/B variant when the experiment is active.
+        // When disabled, pass undefined so generateFramings uses config.llm.defaultProvider.
+        // To switch LLMs: set llm_provider enabled: false in experiments.ts, then
+        // change defaultProvider in lib/config.ts.
+        const llmVariant = isExperimentEnabled("llm_provider")
+          ? (getVariant(sessionId, "llm_provider") as "claude" | "openai")
+          : undefined;
+        // generateFramings fires its own $ai_generation event to PostHog when
+        // analytics context is passed — no LLM observability code needed here.
         const { results, provider, fallbackReason, latencyMs: llmLatencyMs, inputTokens, outputTokens } =
-          await generateFramings(topCreators, assignment, { preferredProvider: llmVariant });
+          await generateFramings(topCreators, assignment, {
+            preferredProvider: llmVariant,
+            analytics: { sessionId, traceId },
+          });
         send({ type: "complete", results });
-
-        // Send per-call LLM metrics (latency, tokens, estimated cost).
-        const llmCostUsd = computeLLMCost(provider, inputTokens, outputTokens);
-        // $ai_generation uses PostHog's LLM Observability schema so the
-        // built-in LLM analytics dashboard populates automatically.
-        const isOpenAI = provider === "openai" || provider === "openai-fallback";
-        void logEvent("$ai_generation", sessionId, {
-          $ai_provider:      isOpenAI ? "openai" : "anthropic",
-          $ai_model:         isOpenAI ? config.llm.providers.openai.model : config.llm.providers.claude.model,
-          $ai_input_tokens:  inputTokens,
-          $ai_output_tokens: outputTokens,
-          $ai_latency:       llmLatencyMs / 1000, // PostHog expects seconds
-          $ai_total_cost_usd: llmCostUsd,
-          // Custom properties — visible in Insights and event detail
-          provider,
-          fallback: provider === "openai-fallback",
-        });
 
         // Log provider switch before the completion event so the failure reason
         // is always recorded even if match_completed logging fails.

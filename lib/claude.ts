@@ -19,6 +19,8 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { Assignment, MatchResult, ScoredCreator } from "@/types";
+import { config } from "@/lib/config";
+import type { LLMProviderName } from "@/lib/config";
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -77,7 +79,6 @@ Key takeaway: ${assignment.keyTakeaway}
 Context: ${assignment.context}
 Target audience: ${assignment.targetAudience || "Not specified"}
 Desired creator values: ${assignment.values || "Not specified"}
-Desired niches: ${assignment.niches || "Not specified"}
 Desired tone: ${assignment.tone || "Not specified"}
 
 TOP 3 MATCHED CREATORS (ranked by algorithmic score):
@@ -159,9 +160,10 @@ function mergeFramings(
 // ---------------------------------------------------------------------------
 
 async function callClaude(prompt: string): Promise<string> {
+  const { model, maxTokens } = config.llm.providers.claude;
   const message = await anthropic.messages.create({
-    model: "claude-haiku-4-5-20251001",
-    max_tokens: 2500,
+    model,
+    max_tokens: maxTokens,
     messages: [{ role: "user", content: prompt }],
   });
   const textBlock = message.content.find((block) => block.type === "text");
@@ -185,8 +187,8 @@ async function callOpenAI(prompt: string): Promise<string> {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      max_tokens: 2500,
+      model: config.llm.providers.openai.model,
+      max_tokens: config.llm.providers.openai.maxTokens,
       messages: [{ role: "user", content: prompt }],
     }),
   });
@@ -232,10 +234,10 @@ export interface FramingResult {
 export async function generateFramings(
   scoredCreators: ScoredCreator[],
   assignment: Assignment,
-  options?: { preferredProvider?: "claude" | "openai" },
+  options?: { preferredProvider?: LLMProviderName },
 ): Promise<FramingResult> {
   const prompt = buildPrompt(scoredCreators, assignment);
-  const preferred = options?.preferredProvider ?? "claude";
+  const preferred = options?.preferredProvider ?? config.llm.defaultProvider;
 
   // --- Direct OpenAI path (A/B experiment variant) ---
   if (preferred === "openai") {

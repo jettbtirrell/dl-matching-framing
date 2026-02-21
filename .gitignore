@@ -42,3 +42,5 @@ next-env.d.ts
 
 # analytics event log (dev only — ephemeral in production)
 /logs/
+
+/.claude/

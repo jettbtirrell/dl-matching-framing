@@ -34,6 +34,7 @@
 
 import creatorsData from "@/data/creators.json";
 import type { Assignment, Creator, ScoredCreator } from "@/types";
+import { config } from "@/lib/config";
 import {
   assignmentToText,
   cosineSimilarity,
@@ -84,7 +85,7 @@ export async function getTopCreators(
     // We multiply rather than subtract so the penalty scales proportionally
     // with the creator's raw score.
     if (creator.region !== "US") {
-      score = score * 0.2;
+      score = score * config.matching.nonUSPenalty;
     }
 
     if (process.env.NODE_ENV === "development") {
@@ -97,7 +98,7 @@ export async function getTopCreators(
     return { creator, score };
   });
 
-  // Sort highest score first, take top 3
+  // Sort highest score first, take topN
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, 3);
+  return scored.slice(0, config.matching.topN);
 }

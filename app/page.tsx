@@ -25,6 +25,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Assignment, ScoredCreator } from "@/types";
+import { config } from "@/lib/config";
 
 // ─── Form field config ────────────────────────────────────────────────────────
 const OPTIONAL_FIELDS = [
@@ -42,14 +43,8 @@ const OPTIONAL_FIELDS = [
     hint: "Values you want the creator to embody",
   },
   {
-    name: "niches" as const,
-    label: "Creator Niches",
-    placeholder: "e.g. Lifestyle, Personal Finance, Consumer Awareness",
-    hint: "Comma-separated content categories",
-  },
-  {
     name: "tone" as const,
-    label: "Tone / Style",
+    label: "Tone",
     placeholder: "e.g. Conversational, Relatable, Lightly Educational",
     hint: "How the content should feel",
   },
@@ -77,6 +72,20 @@ function FieldError({ message }: { message: string }) {
         <line x1="12" y1="16" x2="12.01" y2="16" />
       </svg>
       {message}
+    </span>
+  );
+}
+
+// ─── Character counter ────────────────────────────────────────────────────────
+/** Shows current / max character count; changes colour as the limit approaches. */
+function CharCount({ value, max }: { value: string; max: number }) {
+  const n = value.length;
+  const pct = n / max;
+  const color =
+    n >= max ? "text-error" : pct >= 0.85 ? "text-amber-500" : "text-text-subtle";
+  return (
+    <span className={`text-xs tabular-nums ${color}`}>
+      {n}/{max}
     </span>
   );
 }
@@ -147,7 +156,7 @@ function FramingCreatorCard({
   const allNiches = [
     ...creator.analysis.primaryNiches,
     ...creator.analysis.secondaryNiches,
-  ].slice(0, 4);
+  ].slice(0, config.ui.maxNichesPerCard);
 
   return (
     <div
@@ -272,7 +281,6 @@ export default function HomePage() {
     context: "",
     targetAudience: "",
     values: "",
-    niches: "",
     tone: "",
   });
 
@@ -436,9 +444,12 @@ export default function HomePage() {
                 <h1 className="text-3xl font-bold text-text-primary">
                   Your top creators
                 </h1>
-                <p className="mt-1 text-sm text-text-muted">
-                  Scores are in · Personalized framings loading…
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-border-medium border-t-brand" />
+                  <p className="text-sm text-text-muted">
+                    Personalized framings loading…
+                  </p>
+                </div>
               </>
             ) : (
               /* scoring phase — shown for < 1ms, mostly a safety state */
@@ -515,10 +526,16 @@ export default function HomePage() {
                 value={form.topic}
                 onChange={handleChange}
                 onBlur={handleBlur}
+                maxLength={config.ui.maxChars.topic}
               />
-              {topicInvalid && (
-                <FieldError message="Assignment Topic is required" />
-              )}
+              <div className="flex items-center justify-between">
+                <div>
+                  {topicInvalid && (
+                    <FieldError message="Assignment Topic is required" />
+                  )}
+                </div>
+                <CharCount value={form.topic} max={config.ui.maxChars.topic} />
+              </div>
             </div>
 
             {/* Key Takeaway */}
@@ -527,21 +544,27 @@ export default function HomePage() {
                 htmlFor="keyTakeaway"
                 className="text-sm font-medium text-text-primary"
               >
-                Key Takeaway / Message *
+                Key Takeaway *
               </label>
-              <input
+              <textarea
                 id="keyTakeaway"
                 name="keyTakeaway"
-                type="text"
-                className={`form-input${keyTakeawayInvalid ? " border-error bg-error/[0.04]" : ""}`}
+                rows={2}
+                className={`form-input resize-none${keyTakeawayInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="The one thing the audience should walk away knowing"
                 value={form.keyTakeaway}
                 onChange={handleChange}
                 onBlur={handleBlur}
+                maxLength={config.ui.maxChars.keyTakeaway}
               />
-              {keyTakeawayInvalid && (
-                <FieldError message="Key Takeaway is required" />
-              )}
+              <div className="flex items-center justify-between">
+                <div>
+                  {keyTakeawayInvalid && (
+                    <FieldError message="Key Takeaway is required" />
+                  )}
+                </div>
+                <CharCount value={form.keyTakeaway} max={config.ui.maxChars.keyTakeaway} />
+              </div>
             </div>
 
             {/* Context */}
@@ -550,7 +573,7 @@ export default function HomePage() {
                 htmlFor="context"
                 className="text-sm font-medium text-text-primary"
               >
-                Additional Context / Background *
+                Additional Context *
               </label>
               <textarea
                 id="context"
@@ -561,10 +584,16 @@ export default function HomePage() {
                 value={form.context}
                 onChange={handleChange}
                 onBlur={handleBlur}
+                maxLength={config.ui.maxChars.context}
               />
-              {contextInvalid && (
-                <FieldError message="Context / Background is required" />
-              )}
+              <div className="flex items-center justify-between">
+                <div>
+                  {contextInvalid && (
+                    <FieldError message="Additional Context is required" />
+                  )}
+                </div>
+                <CharCount value={form.context} max={config.ui.maxChars.context} />
+              </div>
             </div>
           </div>
 

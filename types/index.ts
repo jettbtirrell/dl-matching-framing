@@ -64,7 +64,6 @@ export interface Assignment {
   context: string; // required: background, constraints, format notes
   targetAudience?: string; // optional: demographic + locale e.g. "Gen Z, US"
   values?: string; // optional: desired creator values, comma-separated
-  niches?: string; // optional: content niches e.g. "lifestyle, personal finance"
   tone?: string; // optional: style guidance e.g. "conversational, relatable"
 }
 

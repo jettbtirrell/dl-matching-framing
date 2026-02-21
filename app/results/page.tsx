@@ -23,6 +23,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { MatchResult } from "@/types";
+import { config } from "@/lib/config";
 
 // ─── Avatar component ─────────────────────────────────────────────────────────
 /**
@@ -116,7 +117,7 @@ function CreatorCard({ result, rank }: { result: MatchResult; rank: number }) {
   const allNiches = [
     ...creator.analysis.primaryNiches,
     ...creator.analysis.secondaryNiches,
-  ].slice(0, 4);
+  ].slice(0, config.ui.maxNichesPerCard);
 
   return (
     <div

@@ -92,10 +92,6 @@ export async function POST(request: NextRequest) {
       typeof data.values === "string" && data.values.trim()
         ? data.values.trim()
         : undefined,
-    niches:
-      typeof data.niches === "string" && data.niches.trim()
-        ? data.niches.trim()
-        : undefined,
     tone:
       typeof data.tone === "string" && data.tone.trim()
         ? data.tone.trim()

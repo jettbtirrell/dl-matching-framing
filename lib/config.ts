@@ -62,7 +62,7 @@ export interface AppConfig {
   ui: {
     /** Max niche tags shown per creator card (combined primary + secondary). */
     maxNichesPerCard: number;
-    /** Character limits for required assignment form fields. */
+    /** Character limits for all assignment form fields. */
     maxChars: {
       /** Assignment topic — short, one-line field. */
       topic: number;
@@ -70,6 +70,12 @@ export interface AppConfig {
       keyTakeaway: number;
       /** Additional context — large, free-text field. */
       context: number;
+      /** Optional: target audience description. */
+      targetAudience: number;
+      /** Optional: desired creator values. */
+      values: number;
+      /** Optional: desired tone / style. */
+      tone: number;
     };
   };
 }
@@ -92,7 +98,7 @@ const DEFAULTS: AppConfig = {
   matching:   { topN: 3, nonUSPenalty: 0.2 },
   ui: {
     maxNichesPerCard: 4,
-    maxChars: { topic: 150, keyTakeaway: 500, context: 3000 },
+    maxChars: { topic: 150, keyTakeaway: 500, context: 3000, targetAudience: 300, values: 200, tone: 200 },
   },
 };
 
@@ -113,7 +119,7 @@ interface Settings {
   matching?:   { topN?: number; nonUSPenalty?: number };
   ui?: {
     maxNichesPerCard?: number;
-    maxChars?: { topic?: number; keyTakeaway?: number; context?: number };
+    maxChars?: { topic?: number; keyTakeaway?: number; context?: number; targetAudience?: number; values?: number; tone?: number };
   };
 }
 
@@ -175,9 +181,12 @@ export const config: AppConfig = {
     ),
     maxChars: {
       // Clamp each limit to a sensible minimum so the form stays usable
-      topic:      Math.max(50,  SETTINGS.ui?.maxChars?.topic      ?? DEFAULTS.ui.maxChars.topic),
-      keyTakeaway: Math.max(50,  SETTINGS.ui?.maxChars?.keyTakeaway ?? DEFAULTS.ui.maxChars.keyTakeaway),
-      context:    Math.max(100, SETTINGS.ui?.maxChars?.context    ?? DEFAULTS.ui.maxChars.context),
+      topic:         Math.max(50,  SETTINGS.ui?.maxChars?.topic         ?? DEFAULTS.ui.maxChars.topic),
+      keyTakeaway:   Math.max(50,  SETTINGS.ui?.maxChars?.keyTakeaway   ?? DEFAULTS.ui.maxChars.keyTakeaway),
+      context:       Math.max(100, SETTINGS.ui?.maxChars?.context       ?? DEFAULTS.ui.maxChars.context),
+      targetAudience: Math.max(50, SETTINGS.ui?.maxChars?.targetAudience ?? DEFAULTS.ui.maxChars.targetAudience),
+      values:        Math.max(50,  SETTINGS.ui?.maxChars?.values        ?? DEFAULTS.ui.maxChars.values),
+      tone:          Math.max(50,  SETTINGS.ui?.maxChars?.tone          ?? DEFAULTS.ui.maxChars.tone),
     },
   },
 };

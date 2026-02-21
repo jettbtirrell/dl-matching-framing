@@ -35,18 +35,27 @@ const OPTIONAL_FIELDS = [
     placeholder:
       "e.g. Everyday US consumers, adults 25–45 feeling cost-of-living pressure",
     hint: "Demographic and/or locale",
+    maxChars: config.ui.maxChars.targetAudience,
+    textarea: true,
+    rows: 2,
   },
   {
     name: "values" as const,
     label: "Creator Values",
     placeholder: "e.g. Transparency, Honesty, Community",
     hint: "Values you want the creator to embody",
+    maxChars: config.ui.maxChars.values,
+    textarea: true,
+    rows: 1,
   },
   {
     name: "tone" as const,
     label: "Tone",
     placeholder: "e.g. Conversational, Relatable, Lightly Educational",
     hint: "How the content should feel",
+    maxChars: config.ui.maxChars.tone,
+    textarea: true,
+    rows: 1,
   },
 ];
 
@@ -81,8 +90,8 @@ function FieldError({ message }: { message: string }) {
 function CharCount({ value, max }: { value: string; max: number }) {
   const n = value.length;
   const pct = n / max;
-  const color =
-    n >= max ? "text-error" : pct >= 0.85 ? "text-amber-500" : "text-text-subtle";
+  if (pct < 0.85) return null;
+  const color = n >= max ? "text-error" : "text-amber-500";
   return (
     <span className={`text-xs tabular-nums ${color}`}>
       {n}/{max}
@@ -307,6 +316,13 @@ export default function HomePage() {
   ) {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
+
+    // Auto-resize textareas: reset to auto (rows acts as floor) then expand
+    // to scrollHeight so the field always shows its full content without scrolling.
+    if (e.target instanceof HTMLTextAreaElement) {
+      e.target.style.height = "auto";
+      e.target.style.height = `${e.target.scrollHeight}px`;
+    }
   }
 
   function handleBlur(
@@ -334,7 +350,7 @@ export default function HomePage() {
   }
 
   // ─── Submit handler (SSE) ──────────────────────────────────────────────────
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.SyntheticEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
@@ -517,11 +533,12 @@ export default function HomePage() {
               >
                 Assignment Topic *
               </label>
-              <input
+              <textarea
                 id="topic"
                 name="topic"
-                type="text"
-                className={`form-input${topicInvalid ? " border-error bg-error/[0.04]" : ""}`}
+                rows={1}
+                style={{ overflowY: "hidden" }}
+                className={`form-input resize-none${topicInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="e.g. Shrinkflation: Less for More!"
                 value={form.topic}
                 onChange={handleChange}
@@ -550,6 +567,7 @@ export default function HomePage() {
                 id="keyTakeaway"
                 name="keyTakeaway"
                 rows={2}
+                style={{ overflowY: "hidden" }}
                 className={`form-input resize-none${keyTakeawayInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="The one thing the audience should walk away knowing"
                 value={form.keyTakeaway}
@@ -579,6 +597,7 @@ export default function HomePage() {
                 id="context"
                 name="context"
                 rows={4}
+                style={{ overflowY: "hidden" }}
                 className={`form-input resize-none${contextInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="Background on the topic, any content constraints (no promotions, video length, etc.), what tone to avoid…"
                 value={form.context}
@@ -616,16 +635,34 @@ export default function HomePage() {
                 >
                   {field.label}
                 </label>
-                <input
-                  id={field.name}
-                  name={field.name}
-                  type="text"
-                  className="form-input"
-                  placeholder={field.placeholder}
-                  value={form[field.name] ?? ""}
-                  onChange={handleChange}
-                />
-                <span className="text-xs text-text-subtle">{field.hint}</span>
+                {field.textarea ? (
+                  <textarea
+                    id={field.name}
+                    name={field.name}
+                    rows={field.rows ?? 1}
+                    style={{ overflowY: "hidden" }}
+                    className="form-input resize-none"
+                    placeholder={field.placeholder}
+                    value={form[field.name] ?? ""}
+                    onChange={handleChange}
+                    maxLength={field.maxChars}
+                  />
+                ) : (
+                  <input
+                    id={field.name}
+                    name={field.name}
+                    type="text"
+                    className="form-input"
+                    placeholder={field.placeholder}
+                    value={form[field.name] ?? ""}
+                    onChange={handleChange}
+                    maxLength={field.maxChars}
+                  />
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-text-subtle">{field.hint}</span>
+                  <CharCount value={form[field.name] ?? ""} max={field.maxChars} />
+                </div>
               </div>
             ))}
           </div>

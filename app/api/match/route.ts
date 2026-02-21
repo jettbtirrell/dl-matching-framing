@@ -146,12 +146,23 @@ export async function POST(request: NextRequest) {
         const llmVariant = getVariant(sessionId, "llm_provider") as
           | "claude"
           | "openai";
-        const { results, provider } = await generateFramings(
+        const { results, provider, fallbackReason } = await generateFramings(
           topCreators,
           assignment,
           { preferredProvider: llmVariant },
         );
         send({ type: "complete", results });
+
+        // Log provider switch before the completion event so the failure reason
+        // is always recorded even if match_completed logging fails.
+        if (provider === "openai-fallback" && fallbackReason) {
+          void logEvent("provider_fallback", sessionId, {
+            from: "claude",
+            to: "openai",
+            reason: fallbackReason,
+            variants,
+          });
+        }
 
         // Log the completed match with latency and which model actually ran.
         void logEvent("match_completed", sessionId, {

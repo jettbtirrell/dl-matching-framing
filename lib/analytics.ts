@@ -36,6 +36,7 @@ import { join } from "node:path";
 export type EventType =
   | "assignment_submitted" // form submitted and sent to the API
   | "match_completed" // scoring + framing finished, results sent to client
+  | "provider_fallback" // primary LLM failed; logged before the fallback call succeeds
   | "ui_interaction"; // client-side action (button click, page view, etc.)
 
 export interface AnalyticsEvent {

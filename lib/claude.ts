@@ -216,6 +216,8 @@ export interface FramingResult {
   results: MatchResult[];
   /** Which model actually generated the framings — used for analytics logging. */
   provider: "claude" | "openai" | "openai-fallback";
+  /** Set when provider is "openai-fallback" — the error that caused Claude to fail. */
+  fallbackReason?: string;
 }
 
 /**
@@ -266,16 +268,16 @@ export async function generateFramings(
       provider: "claude",
     };
   } catch (claudeError) {
-    console.error(
-      "[claude] Claude failed, falling back to OpenAI:",
-      claudeError instanceof Error ? claudeError.message : claudeError,
-    );
-  }
+    const fallbackReason =
+      claudeError instanceof Error ? claudeError.message : String(claudeError);
+    console.error("[claude] Claude failed, falling back to OpenAI:", fallbackReason);
 
-  const raw = await callOpenAI(prompt);
-  const parsed = parseFramingResponse(raw, "OpenAI (fallback)");
-  return {
-    results: mergeFramings(scoredCreators, parsed),
-    provider: "openai-fallback",
-  };
+    const raw = await callOpenAI(prompt);
+    const parsed = parseFramingResponse(raw, "OpenAI (fallback)");
+    return {
+      results: mergeFramings(scoredCreators, parsed),
+      provider: "openai-fallback",
+      fallbackReason,
+    };
+  }
 }

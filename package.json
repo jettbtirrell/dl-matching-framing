@@ -8,11 +8,13 @@
     "start": "next start",
     "lint": "biome check",
     "format": "biome format --write",
-    "generate-embeddings": "node scripts/generate-embeddings.mjs"
+    "generate-embeddings": "node scripts/generate-embeddings.mjs",
+    "export-diagram": "drawio --export --format png --output architecture.png architecture.drawio"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
     "next": "16.1.6",
+    "posthog-js": "^1.352.0",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },

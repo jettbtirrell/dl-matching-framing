@@ -12,9 +12,9 @@
  *   Show 5 results instead of 3:
  *     matching: { topN: 5 }
  *
- *   Loosen geographic filtering (50% penalty instead of 80%):
+ *   Enable geographic filtering (50% score reduction for non-US creators):
  *     matching: { nonUSPenalty: 0.5 }
- *     Set to 1.0 to disable the penalty entirely.
+ *     Default is 1.0 (no penalty). Set lower to down-rank non-US creators.
  *
  *   Use a larger (slower, more accurate) embedding model:
  *     embeddings: { model: "text-embedding-3-large" }
@@ -120,7 +120,7 @@ const DEFAULTS: AppConfig = {
   embeddings: { model: "text-embedding-3-small" },
   matching: {
     topN: 3,
-    nonUSPenalty: 0.2,
+    nonUSPenalty: 1.0,
     dimensionWeights: { semantic: 0.60, audience: 0.15, values: 0.15, tone: 0.05, engagement: 0.05 },
   },
   ui: {

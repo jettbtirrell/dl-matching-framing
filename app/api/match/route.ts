@@ -38,9 +38,10 @@
 
 import type { NextRequest } from "next/server";
 import { generateFramings } from "@/lib/claude";
-import { logEvent } from "@/lib/analytics";
+import { logEvent, computeLLMCost } from "@/lib/analytics";
 import { getAllVariants, getVariant } from "@/lib/experiments";
 import { getTopCreators } from "@/lib/scoring";
+import { config } from "@/lib/config";
 import type { Assignment } from "@/types";
 
 export async function POST(request: NextRequest) {
@@ -133,7 +134,12 @@ export async function POST(request: NextRequest) {
         // a cache hit (creator embeddings are cached after the first request).
         // Send the scored creators immediately so the client can render creator
         // cards while Claude is still working on framings.
+        const embedStart = Date.now();
         const topCreators = await getTopCreators(assignment);
+        const embedLatencyMs = Date.now() - embedStart;
+
+        void logEvent("api_embedding", sessionId, { latencyMs: embedLatencyMs });
+
         // Include variant assignments so the client can apply A/B UI changes.
         send({ type: "scored", creators: topCreators, variants });
 
@@ -142,12 +148,26 @@ export async function POST(request: NextRequest) {
         const llmVariant = getVariant(sessionId, "llm_provider") as
           | "claude"
           | "openai";
-        const { results, provider, fallbackReason } = await generateFramings(
-          topCreators,
-          assignment,
-          { preferredProvider: llmVariant },
-        );
+        const { results, provider, fallbackReason, latencyMs: llmLatencyMs, inputTokens, outputTokens } =
+          await generateFramings(topCreators, assignment, { preferredProvider: llmVariant });
         send({ type: "complete", results });
+
+        // Send per-call LLM metrics (latency, tokens, estimated cost).
+        const llmCostUsd = computeLLMCost(provider, inputTokens, outputTokens);
+        // $ai_generation uses PostHog's LLM Observability schema so the
+        // built-in LLM analytics dashboard populates automatically.
+        const isOpenAI = provider === "openai" || provider === "openai-fallback";
+        void logEvent("$ai_generation", sessionId, {
+          $ai_provider:      isOpenAI ? "openai" : "anthropic",
+          $ai_model:         isOpenAI ? config.llm.providers.openai.model : config.llm.providers.claude.model,
+          $ai_input_tokens:  inputTokens,
+          $ai_output_tokens: outputTokens,
+          $ai_latency:       llmLatencyMs / 1000, // PostHog expects seconds
+          $ai_total_cost_usd: llmCostUsd,
+          // Custom properties — visible in Insights and event detail
+          provider,
+          fallback: provider === "openai-fallback",
+        });
 
         // Log provider switch before the completion event so the failure reason
         // is always recorded even if match_completed logging fails.
@@ -160,7 +180,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        // Log the completed match with latency and which model actually ran.
+        // Log the completed match with total latency and which model actually ran.
         void logEvent("match_completed", sessionId, {
           provider,
           topCreatorIds: topCreators.map((sc) => sc.creator.uniqueId),

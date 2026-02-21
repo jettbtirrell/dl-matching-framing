@@ -40,6 +40,12 @@ interface FramingResponse {
   creators: CreatorFraming[];
 }
 
+interface LLMCallResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
@@ -183,7 +189,7 @@ function mergeFramings(
 // Provider implementations
 // ---------------------------------------------------------------------------
 
-async function callClaude(prompt: string): Promise<string> {
+async function callClaude(prompt: string): Promise<LLMCallResult> {
   const { model, maxTokens } = config.llm.providers.claude;
   const message = await anthropic.messages.create({
     model,
@@ -197,10 +203,14 @@ async function callClaude(prompt: string): Promise<string> {
   if (process.env.NODE_ENV === "development") {
     console.log("[claude] Raw response:", textBlock.text.slice(0, 300));
   }
-  return textBlock.text;
+  return {
+    text: textBlock.text,
+    inputTokens: message.usage.input_tokens,
+    outputTokens: message.usage.output_tokens,
+  };
 }
 
-async function callOpenAI(prompt: string): Promise<string> {
+async function callOpenAI(prompt: string): Promise<LLMCallResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
 
@@ -224,6 +234,7 @@ async function callOpenAI(prompt: string): Promise<string> {
 
   const json = (await res.json()) as {
     choices: Array<{ message: { content: string } }>;
+    usage: { prompt_tokens: number; completion_tokens: number };
   };
   const text = json.choices[0]?.message?.content;
   if (!text) throw new Error("OpenAI returned no content");
@@ -231,7 +242,11 @@ async function callOpenAI(prompt: string): Promise<string> {
   if (process.env.NODE_ENV === "development") {
     console.log("[openai] Raw response:", text.slice(0, 300));
   }
-  return text;
+  return {
+    text,
+    inputTokens: json.usage.prompt_tokens,
+    outputTokens: json.usage.completion_tokens,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +259,12 @@ export interface FramingResult {
   provider: "claude" | "openai" | "openai-fallback";
   /** Set when provider is "openai-fallback" — the error that caused Claude to fail. */
   fallbackReason?: string;
+  /** Total LLM wall-clock latency in ms (includes fallback time if applicable). */
+  latencyMs: number;
+  /** Input token count from the LLM API response. */
+  inputTokens: number;
+  /** Output token count from the LLM API response. */
+  outputTokens: number;
 }
 
 /**
@@ -262,10 +283,11 @@ export async function generateFramings(
 ): Promise<FramingResult> {
   const prompt = buildPrompt(scoredCreators, assignment);
   const preferred = options?.preferredProvider ?? config.llm.defaultProvider;
+  const llmStart = Date.now();
 
   // --- Direct OpenAI path (A/B experiment variant) ---
   if (preferred === "openai") {
-    const raw = await callOpenAI(prompt);
+    const { text: raw, inputTokens, outputTokens } = await callOpenAI(prompt);
     const parsed = parseFramingResponse(raw, "OpenAI");
     if (process.env.NODE_ENV === "development") {
       console.log(
@@ -276,12 +298,15 @@ export async function generateFramings(
     return {
       results: mergeFramings(scoredCreators, parsed),
       provider: "openai",
+      latencyMs: Date.now() - llmStart,
+      inputTokens,
+      outputTokens,
     };
   }
 
   // --- Claude with OpenAI fallback (default path) ---
   try {
-    const raw = await callClaude(prompt);
+    const { text: raw, inputTokens, outputTokens } = await callClaude(prompt);
     const parsed = parseFramingResponse(raw, "Claude");
     if (process.env.NODE_ENV === "development") {
       console.log(
@@ -292,18 +317,24 @@ export async function generateFramings(
     return {
       results: mergeFramings(scoredCreators, parsed),
       provider: "claude",
+      latencyMs: Date.now() - llmStart,
+      inputTokens,
+      outputTokens,
     };
   } catch (claudeError) {
     const fallbackReason =
       claudeError instanceof Error ? claudeError.message : String(claudeError);
     console.error("[claude] Claude failed, falling back to OpenAI:", fallbackReason);
 
-    const raw = await callOpenAI(prompt);
+    const { text: raw, inputTokens, outputTokens } = await callOpenAI(prompt);
     const parsed = parseFramingResponse(raw, "OpenAI (fallback)");
     return {
       results: mergeFramings(scoredCreators, parsed),
       provider: "openai-fallback",
       fallbackReason,
+      latencyMs: Date.now() - llmStart,
+      inputTokens,
+      outputTokens,
     };
   }
 }

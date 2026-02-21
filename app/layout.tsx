@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import Footer from "@/components/Footer";
 import NavBar from "@/components/NavBar";
+import { PHProvider } from "@/components/PostHogProvider";
 import "./globals.css";
 
 /**
@@ -41,10 +42,12 @@ export default function RootLayout({
        * hardcoding the font name in multiple spots.
        */}
       <body className="flex min-h-screen flex-col antialiased">
-        <NavBar />
-        {/* pt-16 = 64px — pushes all page content below the fixed navbar */}
-        <div className="flex-1 pt-16">{children}</div>
-        <Footer />
+        <PHProvider>
+          <NavBar />
+          {/* pt-16 = 64px — pushes all page content below the fixed navbar */}
+          <div className="flex-1 pt-16">{children}</div>
+          <Footer />
+        </PHProvider>
       </body>
     </html>
   );

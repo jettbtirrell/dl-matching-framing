@@ -1,0 +1,218 @@
+@import "tailwindcss";
+
+/**
+ * Drumbeat brand theme — warm cream palette.
+ *
+ * Tailwind v4 uses @theme in CSS instead of tailwind.config.ts.
+ * Variables defined here become utility class suffixes automatically:
+ *   --color-brand  →  bg-brand, text-brand, border-brand, etc.
+ *
+ * Design direction:
+ * - Warm cream background (#fbfbef page, #fffffb cards) — clean and editorial
+ * - Dark navy text (#152237) — easier to read than pure black on warm cream
+ * - Pink/magenta brand accent (#b92771) — energetic, matches Drumbeat brand
+ * - Dark navy button (#171738) — authority and contrast against cream
+ * - Poppins font — matches Drumbeat's actual site font-family
+ * - Pill buttons (34px radius) and rounded cards (16px) — matches Drumbeat's site
+ *
+ * COLOR SYSTEM:
+ * All repeating colors are defined here as CSS variables. To change any color
+ * across the entire app, update the single value below — every component that
+ * uses the generated utility class (e.g. text-text-primary, bg-fill-muted)
+ * updates automatically.
+ */
+@theme {
+  /* ── Brand ──────────────────────────────────────────────────────────────── */
+  --color-brand: #b92771;
+  --color-brand-hover: #e5541a;
+  /* brand-muted uses the current brand color at 8% opacity */
+  --color-brand-muted: rgba(185, 39, 113, 0.08);
+
+  /* ── Framing accent — used for the "Suggested Post Framing" box ──────────
+     Distinct from the brand pink; this is the solid indigo that backs the
+     framing callout, creator initials avatar, and related UI in that section. */
+  --color-framing: #4e37f6;           /* solid box background + avatar bg */
+  --color-framing-border: #3a27d4;    /* slightly darker for the box border */
+  --color-framing-text: #e8e4ff;      /* near-white, lavender-tinted body text */
+
+  /* ── Drumbeat navy ───────────────────────────────────────────────────────
+     The primary dark color: navbar background, primary button, input focus border.
+     --color-drumbeat-navy auto-generates: bg-drumbeat-navy, text-drumbeat-navy,
+     border-drumbeat-navy utility classes. */
+  --color-drumbeat-navy: #171738;
+  /* Hover state for the primary (navy) button */
+  --color-navy-hover: #252558;
+
+  /* ── Text hierarchy ──────────────────────────────────────────────────────
+     Five levels from primary (headings) to faint (footer disclaimers).
+     Change any value here to update every element using that text tier. */
+  --color-text-primary: #152237;    /* headings, labels, key content */
+  --color-text-secondary: #666666;  /* descriptions, US region label */
+  --color-text-muted: #888888;      /* metadata, subtitles, handle links */
+  --color-text-subtle: #aaaaaa;     /* section labels, loading captions */
+  --color-text-faint: #bbbbbb;      /* footer disclaimer */
+  --color-text-body: #333333;       /* longer paragraph content */
+
+  /* ── Surfaces ────────────────────────────────────────────────────────────
+     Warm cream backgrounds at three levels: page → card → muted fill.
+     Change surface-page here and both html/body update. */
+  --color-surface-page: #fbfbef;    /* html/body background */
+  --color-surface-card: #fffffb;    /* card and pill badge backgrounds */
+  --color-fill-muted: #ebebe2;      /* tags, rank circles, form input fill */
+  --color-fill-hover: #f0f0e8;      /* form input focus bg, button hover */
+
+  /* ── Borders & dividers ──────────────────────────────────────────────────
+     Two levels — subtle for cards/dividers, medium for interactive elements. */
+  --color-border-subtle: #e8e8da;   /* card border, horizontal dividers */
+  --color-border-medium: #d0d0c0;   /* secondary button, pill badges, scrollbar */
+
+  /* ── Error / destructive ─────────────────────────────────────────────────
+     Used for validation text, error borders, and error tint backgrounds.
+     bg-error/[0.04] and bg-error/[0.05] are derived from this via opacity. */
+  --color-error: #c52c26;
+
+  /* ── Font ────────────────────────────────────────────────────────────────
+     var(--font-poppins) is set by next/font in layout.tsx, which self-hosts
+     the font at build time so there's no runtime Google Fonts request. */
+  --font-sans: var(--font-poppins), "Poppins", system-ui, sans-serif;
+}
+
+/* -------------------------------------------------------------------------
+   Base styles
+   ------------------------------------------------------------------------- */
+@layer base {
+  html {
+    background-color: var(--color-surface-page);
+    color: var(--color-text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-surface-page);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+  }
+
+  /* Scrollbar — warm tones to match the cream palette */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #f0f0e4;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-medium);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #b8b8a8;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Component helpers — reusable across multiple components
+   ------------------------------------------------------------------------- */
+@layer components {
+  /* Primary action button — dark navy pill */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 34px;
+    background-color: var(--color-drumbeat-navy);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    padding: 0.75rem 2rem;
+    transition:
+      background-color 0.15s ease,
+      transform 0.1s ease;
+    cursor: pointer;
+    border: none;
+    font-family: var(--font-sans);
+  }
+  .btn-primary:hover {
+    background-color: var(--color-navy-hover);
+  }
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* Secondary / ghost button */
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 34px;
+    background-color: transparent;
+    color: var(--color-text-primary);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    padding: 0.75rem 2rem;
+    transition:
+      background-color 0.15s ease,
+      transform 0.1s ease;
+    cursor: pointer;
+    border: 1px solid var(--color-border-medium);
+    font-family: var(--font-sans);
+  }
+  .btn-secondary:hover {
+    background-color: var(--color-fill-muted);
+  }
+  .btn-secondary:active {
+    transform: scale(0.98);
+  }
+
+  /* Card surface */
+  .card {
+    background-color: var(--color-surface-card);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 4px rgba(21, 34, 55, 0.06);
+  }
+
+  /* Form input — slightly darker cream fill, invisible border until focus */
+  .form-input {
+    width: 100%;
+    background-color: var(--color-fill-muted);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: var(--color-text-primary);
+    font-size: 0.9375rem;
+    padding: 0.75rem 1rem;
+    transition:
+      border-color 0.15s ease,
+      background-color 0.15s ease;
+    font-family: var(--font-sans);
+    outline: none;
+  }
+  .form-input::placeholder {
+    color: #9a9a8a;
+  }
+  .form-input:focus {
+    border-color: var(--color-drumbeat-navy);
+    background-color: var(--color-fill-hover);
+  }
+
+  /* Niche / tag pill */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    background-color: var(--color-fill-muted);
+    color: var(--color-text-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    padding: 0.2rem 0.65rem;
+    white-space: nowrap;
+  }
+}

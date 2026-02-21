@@ -44,19 +44,43 @@ interface FramingResponse {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Serialize one field into a "Label: value" line.
+ * Returns an empty string (filtered out below) if the value is blank or an empty array.
+ */
+function field(label: string, value: string | string[] | undefined | null): string {
+  if (Array.isArray(value)) {
+    const joined = value.filter(Boolean).join(", ");
+    return joined ? `${label}: ${joined}` : "";
+  }
+  const str = (value ?? "").trim();
+  return str ? `${label}: ${str}` : "";
+}
+
 function buildCreatorSummary(sc: ScoredCreator, index: number): string {
   const c = sc.creator;
-  return `--- Creator ${index + 1}: ${c.nickname} (@${c.uniqueId}) ---
-Summary: ${c.analysis.summary}
-Primary niches: ${c.analysis.primaryNiches.join(", ")}
-Secondary niches: ${c.analysis.secondaryNiches.join(", ")}
-Values: ${c.analysis.apparentValues.join(", ")}
-Tone: ${c.analysis.engagementStyle.tone.join(", ")}
-Content style: ${c.analysis.engagementStyle.contentStyle}
-Audience interests: ${c.analysis.audienceInterests.join(", ")}
-Identified causes: ${c.analysis.identifiedCauses.join(", ")}
-Follower count: ${c.followerCount.toLocaleString()}
-Match score: ${(sc.score * 100).toFixed(0)}/100`.trim();
+  const a = c.analysis;
+  return [
+    `--- Creator ${index + 1}: ${c.nickname} (@${c.uniqueId}) ---`,
+    field("Bio", c.bio),
+    field("Summary", a.summary),
+    field("Primary niches", a.primaryNiches),
+    field("Secondary niches", a.secondaryNiches),
+    field("Values", a.apparentValues),
+    field("Social stances", a.socialStances),
+    field("Identified causes", a.identifiedCauses),
+    field("Audience interests", a.audienceInterests),
+    field("Tone", a.engagementStyle.tone),
+    field("Content style", a.engagementStyle.contentStyle),
+    field("Calls to action", a.engagementStyle.callsToAction),
+    field("Aligned org types", a.partnershipPotential.alignedOrganizationTypes),
+    field("Content strengths", a.partnershipPotential.contentStrengths),
+    field("Considerations", a.partnershipPotential.considerations),
+    field("Top hashtags", a.topHashtags),
+    field("Source hashtags", c.sourceHashtags),
+    field("Evidence notes", a.evidenceNotes),
+    `Match score: ${(sc.score * 100).toFixed(0)}/100`,
+  ].filter(Boolean).join("\n");
 }
 
 /**

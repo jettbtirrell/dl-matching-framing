@@ -8,11 +8,18 @@
  * calls OpenAI for creator embeddings — only the per-request assignment
  * embedding (~100ms) hits the API at runtime.
  *
- * FILE FORMAT: each creator gets its own entry with an embeddedAt timestamp.
- * At runtime, the app compares each creator's updatedAt against embeddedAt —
- * any creator updated after their embedding was generated gets automatically
- * re-embedded on the next cold start (in development) or on next deploy
- * (in production, re-run this script and redeploy).
+ * FILE FORMAT
+ * ───────────
+ * Each creator entry contains:
+ *   embeddedAt  — ISO timestamp; compared against creator.updatedAt for staleness
+ *   vector      — normalized full-profile embedding (used for base semantic score)
+ *   dimensions  — three targeted vectors used by the re-ranking step:
+ *     audience  — audienceInterests
+ *     values    — apparentValues + socialStances + identifiedCauses
+ *     tone      — engagementStyle tone + contentStyle
+ *
+ * All four vectors per creator are embedded in one batched API call, so this
+ * script makes a single round-trip regardless of creator count.
  *
  * IMPORTANT: If you change DEFAULTS.embeddings.model in lib/config.ts,
  * re-run this script so the cached vectors match the new model.
@@ -59,8 +66,9 @@ if (!OPENAI_API_KEY) {
 const EMBEDDING_MODEL = "text-embedding-3-small";
 
 // ---------------------------------------------------------------------------
-// Creator text serialization — mirrors creatorToText() in lib/embeddings.ts.
-// Both must produce identical strings so the cached vectors are valid.
+// Creator text serialization — mirrors lib/embeddings.ts.
+// All functions must produce identical strings to their TypeScript counterparts
+// so the cached vectors are valid at runtime.
 // ---------------------------------------------------------------------------
 
 function creatorToText(creator) {
@@ -75,6 +83,25 @@ function creatorToText(creator) {
     `Audience interests: ${analysis.audienceInterests.join(", ")}`,
     `Causes: ${analysis.identifiedCauses.join(", ")}`,
   ].join("\n");
+}
+
+function creatorAudienceText(creator) {
+  return creator.analysis.audienceInterests.filter(Boolean).join(", ");
+}
+
+function creatorValuesText(creator) {
+  return [
+    ...creator.analysis.apparentValues,
+    ...creator.analysis.socialStances,
+    ...creator.analysis.identifiedCauses,
+  ].filter(Boolean).join(", ");
+}
+
+function creatorToneText(creator) {
+  return [
+    ...creator.analysis.engagementStyle.tone,
+    creator.analysis.engagementStyle.contentStyle,
+  ].filter(Boolean).join(", ");
 }
 
 // ---------------------------------------------------------------------------
@@ -97,9 +124,17 @@ const outputPath = join(root, "data", "creator-embeddings.json");
 const creatorsData = JSON.parse(readFileSync(creatorsPath, "utf-8"));
 const creators = Object.values(creatorsData);
 
-console.log(`Embedding ${creators.length} creators with ${EMBEDDING_MODEL}…`);
+console.log(`Embedding ${creators.length} creators (4 vectors each) with ${EMBEDDING_MODEL}…`);
 
-const texts = creators.map(creatorToText);
+// Interleave texts: [full_0, audience_0, values_0, tone_0, full_1, …]
+// One batch call for all creators × all dimensions.
+const texts = [];
+for (const creator of creators) {
+  texts.push(creatorToText(creator));
+  texts.push(creatorAudienceText(creator));
+  texts.push(creatorValuesText(creator));
+  texts.push(creatorToneText(creator));
+}
 
 const res = await fetch("https://api.openai.com/v1/embeddings", {
   method: "POST",
@@ -120,21 +155,23 @@ const json = await res.json();
 const ordered = json.data.sort((a, b) => a.index - b.index);
 const embeddedAt = new Date().toISOString();
 
-// Build per-creator entries: { embeddedAt, vector }
+// Slice vectors back out — 4 per creator in insertion order
 const entries = {};
 for (let i = 0; i < creators.length; i++) {
+  const base = i * 4;
   entries[creators[i].uniqueId] = {
     embeddedAt,
-    vector: normalize(ordered[i].embedding),
+    vector: normalize(ordered[base].embedding),
+    dimensions: {
+      audience: normalize(ordered[base + 1].embedding),
+      values:   normalize(ordered[base + 2].embedding),
+      tone:     normalize(ordered[base + 3].embedding),
+    },
   };
 }
 
-const output = {
-  model: EMBEDDING_MODEL,
-  entries,
-};
-
+const output = { model: EMBEDDING_MODEL, entries };
 writeFileSync(outputPath, JSON.stringify(output, null, 2), "utf-8");
 
-console.log(`Done. Wrote ${creators.length} embeddings to data/creator-embeddings.json`);
+console.log(`Done. Wrote ${creators.length} creators × 4 vectors to data/creator-embeddings.json`);
 console.log(`Model: ${EMBEDDING_MODEL} · embeddedAt: ${embeddedAt}`);

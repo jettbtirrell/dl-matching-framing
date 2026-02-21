@@ -58,6 +58,29 @@ export interface AppConfig {
      * 0.2 = 80% reduction.  1.0 = no penalty.
      */
     nonUSPenalty: number;
+    /**
+     * Relative weights for each scoring dimension.
+     * Weights are normalized at runtime — they don't need to sum to 1.
+     * Set a weight to 0 to disable that dimension entirely.
+     *
+     * Dimension signals:
+     *   semantic   — full-profile embedding cosine similarity (always active)
+     *   audience   — assignment targetAudience ↔ creator audienceInterests
+     *                (active only when the user fills the targetAudience field)
+     *   values     — assignment values ↔ creator apparentValues + causes + stances
+     *                (active only when the user fills the values field)
+     *   tone       — assignment tone ↔ creator engagementStyle tone + contentStyle
+     *                (active only when the user fills the tone field)
+     *   engagement — heartCount / followerCount signal; no API call required
+     *                (always active)
+     */
+    dimensionWeights: {
+      semantic:   number;
+      audience:   number;
+      values:     number;
+      tone:       number;
+      engagement: number;
+    };
   };
   ui: {
     /** Max niche tags shown per creator card (combined primary + secondary). */
@@ -95,7 +118,11 @@ const DEFAULTS: AppConfig = {
     },
   },
   embeddings: { model: "text-embedding-3-small" },
-  matching:   { topN: 3, nonUSPenalty: 0.2 },
+  matching: {
+    topN: 3,
+    nonUSPenalty: 0.2,
+    dimensionWeights: { semantic: 0.60, audience: 0.15, values: 0.15, tone: 0.05, engagement: 0.05 },
+  },
   ui: {
     maxNichesPerCard: 4,
     maxChars: { topic: 150, keyTakeaway: 500, context: 3000, targetAudience: 300, values: 200, tone: 200 },
@@ -116,7 +143,11 @@ interface Settings {
     };
   };
   embeddings?: { model?: string };
-  matching?:   { topN?: number; nonUSPenalty?: number };
+  matching?: {
+    topN?: number;
+    nonUSPenalty?: number;
+    dimensionWeights?: { semantic?: number; audience?: number; values?: number; tone?: number; engagement?: number };
+  };
   ui?: {
     maxNichesPerCard?: number;
     maxChars?: { topic?: number; keyTakeaway?: number; context?: number; targetAudience?: number; values?: number; tone?: number };
@@ -127,7 +158,7 @@ const SETTINGS: Settings = {
   // Uncomment and edit any line to override a default:
 
   // llm:        { defaultProvider: "openai" },
-  // matching:   { topN: 5, nonUSPenalty: 1.0 },
+  // matching:   { topN: 5, nonUSPenalty: 1.0, dimensionWeights: { semantic: 0.5, audience: 0.2, values: 0.2, tone: 0.05, engagement: 0.05 } },
   // embeddings: { model: "text-embedding-3-large" },
   // ui:         { maxNichesPerCard: 6, maxChars: { topic: 200, keyTakeaway: 600, context: 5000 } },
 };
@@ -172,6 +203,14 @@ export const config: AppConfig = {
       1,
       Math.max(0, SETTINGS.matching?.nonUSPenalty ?? DEFAULTS.matching.nonUSPenalty),
     ),
+    dimensionWeights: {
+      // Clamp each weight to ≥ 0 — negative weights are nonsensical
+      semantic:   Math.max(0, SETTINGS.matching?.dimensionWeights?.semantic   ?? DEFAULTS.matching.dimensionWeights.semantic),
+      audience:   Math.max(0, SETTINGS.matching?.dimensionWeights?.audience   ?? DEFAULTS.matching.dimensionWeights.audience),
+      values:     Math.max(0, SETTINGS.matching?.dimensionWeights?.values     ?? DEFAULTS.matching.dimensionWeights.values),
+      tone:       Math.max(0, SETTINGS.matching?.dimensionWeights?.tone       ?? DEFAULTS.matching.dimensionWeights.tone),
+      engagement: Math.max(0, SETTINGS.matching?.dimensionWeights?.engagement ?? DEFAULTS.matching.dimensionWeights.engagement),
+    },
   },
   ui: {
     // Clamp to ≥ 1 so at least one niche tag always shows

@@ -42,8 +42,8 @@ function Pills({ items }: { items: string[] }) {
   if (!items.length) return <span className="text-sm text-text-muted">—</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
-      {items.map((item) => (
-        <span key={item} className="tag">
+      {items.map((item, i) => (
+        <span key={`${item}-${i}`} className="tag">
           {item}
         </span>
       ))}

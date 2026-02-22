@@ -38,6 +38,7 @@ const OPTIONAL_FIELDS = [
     maxChars: config.ui.maxChars.targetAudience,
     textarea: true,
     rows: 2,
+    mobileCls: "max-sm:min-h-24",
   },
   {
     name: "values" as const,
@@ -47,6 +48,7 @@ const OPTIONAL_FIELDS = [
     maxChars: config.ui.maxChars.values,
     textarea: true,
     rows: 1,
+    mobileCls: "max-sm:min-h-20",
   },
   {
     name: "tone" as const,
@@ -56,6 +58,7 @@ const OPTIONAL_FIELDS = [
     maxChars: config.ui.maxChars.tone,
     textarea: true,
     rows: 1,
+    mobileCls: "max-sm:min-h-20",
   },
 ];
 
@@ -539,7 +542,7 @@ export default function HomePage() {
                 name="topic"
                 rows={1}
                 style={{ overflowY: "hidden" }}
-                className={`form-input resize-none${topicInvalid ? " border-error bg-error/[0.04]" : ""}`}
+                className={`form-input resize-none max-sm:min-h-20${topicInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="e.g. Shrinkflation: Less for More!"
                 value={form.topic}
                 onChange={handleChange}
@@ -569,7 +572,7 @@ export default function HomePage() {
                 name="keyTakeaway"
                 rows={2}
                 style={{ overflowY: "hidden" }}
-                className={`form-input resize-none${keyTakeawayInvalid ? " border-error bg-error/[0.04]" : ""}`}
+                className={`form-input resize-none max-sm:min-h-24${keyTakeawayInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="The one thing the audience should walk away knowing"
                 value={form.keyTakeaway}
                 onChange={handleChange}
@@ -599,7 +602,7 @@ export default function HomePage() {
                 name="context"
                 rows={4}
                 style={{ overflowY: "hidden" }}
-                className={`form-input resize-none${contextInvalid ? " border-error bg-error/[0.04]" : ""}`}
+                className={`form-input resize-none max-sm:min-h-36${contextInvalid ? " border-error bg-error/[0.04]" : ""}`}
                 placeholder="Background on the topic, any content constraints (no promotions, video length, etc.), what tone to avoid…"
                 value={form.context}
                 onChange={handleChange}
@@ -642,7 +645,7 @@ export default function HomePage() {
                     name={field.name}
                     rows={field.rows ?? 1}
                     style={{ overflowY: "hidden" }}
-                    className="form-input resize-none"
+                    className={`form-input resize-none ${field.mobileCls ?? ""}`}
                     placeholder={field.placeholder}
                     value={form[field.name] ?? ""}
                     onChange={handleChange}

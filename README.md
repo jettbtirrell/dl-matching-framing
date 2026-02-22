@@ -1,37 +1,44 @@
-# dl-matching-framing
+# Creator Matching and Personalized Assignment Framing
 
-An internal tool that matches nonprofit campaign briefs to TikTok creators using semantic embeddings, then generates personalized post framings via Claude Haiku.
+By Jett Badalament-Tirrell
 
----
+A user (a nonprofit or client) enters a content assignment and goals. This product returns:
 
-## Architecture
-
-![Architecture](architecture.png)
-
-> To regenerate: `npm run export-diagram` (requires draw.io desktop CLI on PATH), or open `architecture.drawio` directly in draw.io or VS Code with the Draw.io extension.
+- The top 3 available matching creators from a provided seed dataset, and
+- A personalized suggested framing and idea for a post for each creator, tailored to that creator's profile and the client's assignment
 
 ---
 
-## Quick Start
+## Live Application
+
+The deployed application is available at: **https://dl-take-home-exercise-jett.vercel.app**
+
+---
+
+## Running Locally
+
+**Prerequisites:** Node.js 18+, an Anthropic API key, and an OpenAI API key.
 
 ```bash
 npm install
 ```
 
-Create `.env.local`:
+Create a `.env.local` file in the project root:
+
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
-POSTHOG_API_KEY=phc_...              # Server-side events — omit to fall back to console.log
-POSTHOG_HOST=https://app.posthog.com # Server-side host (default: app.posthog.com)
-NEXT_PUBLIC_POSTHOG_KEY=phc_...      # Client-side page views (same value as POSTHOG_API_KEY)
-NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com  # Client-side host
+POSTHOG_API_KEY=phc_...         # Optional — omit to fall back to console.log
+NEXT_PUBLIC_POSTHOG_KEY=phc_... # Optional — same value as above
 ```
 
-Pre-compute creator embeddings (run once; commit the output):
+Pre-compute creator embeddings (run once before starting the server; commit the output file):
+
 ```bash
 npm run generate-embeddings
 ```
+
+Start the development server:
 
 ```bash
 npm run dev
@@ -41,81 +48,125 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ---
 
-## What AI Is Used For (and Why)
+## UX Decisions
 
-**Two AI calls per request — nothing more.**
+**Simplicity first.** The form is designed to feel lightweight and unintimidating. Text areas auto-resize as the user types, up to a defined maximum. Placeholder text explains what belongs in each field without requiring documentation. The character counter only appears when a user is approaching the limit, so it never stresses someone who is just getting started. I also reconsidered the field names from the brief spec where slashes introduced ambiguity — "Tone / Style" became "Tone," "Key Takeaway / Message" became "Key Takeaway," and "Creator Values / Niches" became "Creator Values." In each case I chose the framing I felt was clearer and more useful. Content guidelines and background information both fit naturally into the Additional Context field, which keeps the form from feeling like a checklist.
 
-| Step | Technology | Why AI |
-|------|-----------|--------|
-| Ranking creators | OpenAI `text-embedding-3-small` | Semantic similarity catches related concepts keyword search misses — "consumer awareness" ↔ "economic anxiety" share no words but sit close in embedding space |
-| Writing framings | Claude Haiku (gpt-4o-mini fallback) | Natural language tailored to each creator's style and audience can't be produced deterministically |
+**Speed that respects the user's time.** The biggest bottleneck in the flow is LLM generation — 2 to 4 seconds on average. Rather than making the user stare at a spinner for that entire window, creator cards appear within approximately 200ms of submitting the form, as soon as the deterministic scoring step finishes. The user is already reading real, useful information — creator name, follower count, niches, bio — while the AI is still writing in the background. The goal is a perceived wait time that would never make someone click away.
 
-**Where AI is explicitly not used:** routing, session management, A/B variant assignment, input validation, form rendering, analytics logging. These are deterministic problems. Using AI for them adds cost and nondeterminism without adding value.
+**Always communicating state.** The app makes it clear at every moment whether it is loading or done. Creator cards appear immediately with shimmer skeleton placeholders (animated pulsing blocks) in the sections where AI-generated text will go. This communicates both that the app is working and that more information is on the way. When the AI finishes, the skeletons are replaced seamlessly.
+
+**Results that help the user decide.** The top-ranked match is highlighted with a distinct indigo border and a "Top Match" badge with a star. The match explanation references the creator's actual niche, tone, or audience — not generic praise. The suggested framing is a concrete content concept, not vague direction. Together, these give the user enough to act without needing a separate briefing document.
+
+**Brand cohesion.** I styled the application to match the look and feel of Drumbeat's current landing page at hellodrumbeat.com — same font (Poppins), a warm cream palette, and the dark navy header and footer. For a bit of immersion, I added links back to the landing page, privacy policy, and terms of service. I recognize that in a real deployment the nonprofit's landing page would be different from Drumbeat's, but for a prototype I thought it was worth the extra polish.
+
+**Resilience as a user experience decision.** If Claude goes down, the app automatically falls back to OpenAI with no user-facing error. The user never knows a provider switch happened. I think of reliability as part of UX — an app that silently degrades gracefully is a better experience than one that surfaces infrastructure problems to the client.
 
 ---
 
 ## Matching Approach
 
-The brief and each creator profile are embedded as vectors. Creators are ranked by a weighted combination of five signals:
+### What I Considered
+
+When designing the matching system I evaluated three approaches:
+
+**Keyword matching** — score creators by how many words from the assignment overlap with their profile. Fast and transparent, but it completely fails when semantically related concepts share no words. "Consumer awareness" and "economic anxiety" describe the same idea but have zero lexical overlap. A keyword system would miss this entirely.
+
+**LLM ranking** — send the brief and all creator profiles to a model and ask it to rank them. Handles nuance well, but it must happen before the user sees anything, adding 2 to 4 seconds of blank-screen wait before a single result is shown. It is also expensive at scale, non-deterministic (the same brief can produce different rankings on different calls), and requires re-sending all creator profiles with every request.
+
+**Semantic embeddings** — convert both the assignment brief and each creator profile to high-dimensional vectors, then rank creators by cosine similarity. Meaning-aware, fast, cheap, and deterministic.
+
+I chose embeddings. The key insight from my earlier work on a travel advisor LLM is that embeddings can be computed once per creator and stored, meaning the runtime cost of each new request is just a single API call to embed the assignment — not the entire creator database. Ranking then becomes a fast mathematical operation (dot products of normalized vectors), not another LLM call.
+
+### How Matching Works
+
+The system uses a five-signal weighted scoring pipeline. Each request embeds the assignment brief and computes cosine similarity against pre-stored creator vectors across multiple semantic subspaces:
 
 | Signal | Weight | Active when |
 |--------|--------|-------------|
-| `semantic` | 60% | Always — full-profile cosine similarity |
-| `audience` | 15% | `targetAudience` field is filled |
-| `values` | 15% | `values` field is filled |
-| `tone` | 5% | `tone` field is filled |
-| `engagement` | 5% | Always — heart/follower ratio |
+| Semantic | 60% | Always — full-profile similarity |
+| Audience | 15% | User fills in Target Audience |
+| Values | 15% | User fills in Creator Values |
+| Tone | 5% | User fills in Tone |
+| Engagement | 5% | Always — heart-to-follower ratio |
 
-Filling optional fields shifts weight toward those targeted dimensions rather than adding bonus points — scores stay comparable across submissions. All weights are tunable in `lib/config.ts` without touching the algorithm.
+The **semantic signal** compares the full assignment against each creator's complete embedded profile. This catches the broad thematic match — does this creator generally operate in this space?
 
-Creator embeddings are pre-computed and committed. Runtime cost is one embedding call for the assignment (~100ms, ~$0.00002).
+The **audience, values, and tone signals** are targeted comparisons: the user's stated target audience text is embedded and compared specifically against each creator's audience interest vectors; stated values are compared against creator value and cause vectors; stated tone against their engagement style vectors. These let a nonprofit that cares deeply about, say, economic equity surface creators whose stated values align — even if their content topics are adjacent rather than identical.
 
-**When no strong match exists.** The system always returns the top 3 by score — it doesn't suppress results below a threshold. If the best available creator scores 38/100, the user still sees them alongside a match explanation that references their actual profile rather than inventing relevance. The score itself and the concrete explanation give the user enough signal to decide whether to proceed or refine the brief. Suppressing results would be worse UX: the user wouldn't know whether the sparse pool or a weak brief was the problem.
+The **engagement signal** is purely mathematical: total hearts divided by follower count times five, clamped to 1.0. A creator with hearts equal to five times their follower count scores 1.0. No API call required.
 
----
+When optional fields are filled, their weight shifts into the total rather than adding bonus points. Scores stay comparable across submissions regardless of how many optional fields are completed. All weights are configurable in `lib/config.ts` without touching the algorithm.
 
-## UX Decisions
+Creator embeddings are pre-computed, stored in `data/creator-embeddings.json`, and committed to the repository. The runtime cost for each user request is one OpenAI embedding call for the assignment brief — roughly $0.00002 and 100ms.
 
-**Speed of first result.** Creator cards appear within ~200ms of submitting, before the LLM has written anything. The user reads real content (name, bio, niches, follower count) while Claude runs in the background.
+### When No Strong Match Exists
 
-**Progressive disclosure.** Required fields (topic, takeaway, context) in the main card. Optional fields in a separate card below with a "More detail = more precise matching" hint. A first-time user submits a valid brief without reading documentation.
+The system always returns the top 3 by score. It does not suppress results below a threshold.
 
-**Results that explain themselves.** "Why they match" in 1–3 sentences references the creator's actual niche, tone, or audience — not generic praise. "Suggested Post Framing" is a concrete content concept, not vague guidance. The Top Match badge and indigo border nudge without mandating.
+I thought carefully about this. If the best available creator scores 35 out of 100, showing nothing would leave the user with no signal about whether the problem is a weak brief, a sparse creator pool, or a genuinely poor fit. Showing the result — with the score visible and a match explanation grounded in the creator's actual profile rather than invented relevance — gives the user enough information to decide whether to refine their brief, accept the match, or flag that the pool needs more creators in this space.
 
-**Thoughtful UI states.**
+The score itself and a concrete, honest explanation are more useful than a blank page with "no results found."
 
-- **Loading** — Two-phase SSE stream: the `scored` event arrives first (~200ms) and renders full creator cards with shimmer skeleton placeholders in the AI text areas. The user is reading real data (follower count, niches, bio) while Claude is still working. When the `complete` event arrives (~2–4s later), skeletons are replaced with text.
-- **Error** — If the SSE stream returns an `error` event (API failure, network drop), an inline error message replaces the loading state. No broken or partially-rendered cards are shown.
-- **Insufficient brief** — If required fields contain fewer than 3 meaningful words, the LLM call is skipped entirely and a canned "brief too vague" message appears in place of AI text. Matching still runs — scores still show — so the user can see the result of refining their brief without re-running the embedding.
+### Geographic Assumption
 
----
-
-## Cost, Latency & Reliability
-
-| Concern | How it's handled |
-|---------|-----------------|
-| **Cost** | Creator embeddings are pre-computed and committed — no embedding cost per creator, only one call for the assignment brief (~$0.00002). LLM framing costs ~$0.001–0.003 per request at Haiku pricing. Sparse briefs skip the LLM call entirely: zero cost, zero latency. |
-| **Latency** | Embedding + scoring finishes in ~150ms. The SSE pattern means the user sees results at 150ms; the 2–4s LLM wait is concurrent with them reading creator cards. Effective perceived latency is ~200ms. |
-| **Reliability** | Claude Haiku is primary; gpt-4o-mini is an automatic hard fallback on any Claude failure. Both providers receive the same prompt (`buildPrompt` is the single source of truth). The A/B experiment routes a portion of traffic directly to OpenAI, which keeps the fallback path warm and provides real quality-comparison data. |
-| **Hallucination** | Two-layer defense: a deterministic word-count gate in code blocks LLM calls for sparse briefs; the prompt explicitly forbids filling brief gaps with assumptions. The code gate handles the obvious failure mode; the prompt constraint handles edge cases that pass the gate. |
+The current implementation assumes the client is a US-based nonprofit. When a creator's region is listed as EU, UK, or any non-US location, that information is displayed in orange on their card as a flag that there may be regulatory, audience, or campaign fit considerations. The underlying score is not penalized by default, but `lib/config.ts` exposes a `nonUSPenalty` multiplier that can reduce non-US creators' effective scores if geographic targeting becomes a priority.
 
 ---
 
-## Model and Provider Choices
+## AI Decisions
 
-| Model | Role | Rationale |
-|-------|------|-----------|
-| `text-embedding-3-small` | Semantic matching | Fast (~100ms), cheap (~$0.02/MTok), 1536D — sufficient for short creator profiles |
-| `claude-haiku-4-5-20251001` | Framing generation | $0.25/$1.25 per MTok in/out, 2–4s latency, good structured output quality |
-| `gpt-4o-mini` | Automatic fallback | Same price range, different infrastructure — real redundancy, not a retry |
+### Model Selection
 
-Claude Sonnet and GPT-4o produce marginally better framings at 5–12× the cost and latency. Prompt engineering matters more than raw model capability for this structured generation task.
+I evaluated four models for the framing generation step:
 
----
+| Model | Input cost | Latency | Notes |
+|-------|-----------|---------|-------|
+| Claude Haiku | $0.25 per million tokens | 2 to 4s | Good structured output, strong instruction-following |
+| Claude Sonnet | $3.00 per million tokens | 4 to 8s | Meaningfully better, but 12x more expensive |
+| gpt-4o-mini | $0.15 per million tokens | 2 to 4s | Comparable quality, different infrastructure |
+| gpt-4o | $2.50 per million tokens | 5 to 10s | Better, but 10x the cost |
 
-## Framing Prompt
+I chose **Claude Haiku as primary with gpt-4o-mini as the automatic fallback.**
 
-The exact instructions sent to Claude (and the OpenAI fallback) on every request (`lib/claude.ts → buildPrompt`):
+For a structured generation task driven by a detailed prompt, prompt engineering matters more than raw model capability. The marginal quality improvement from a larger model does not justify a 5 to 12x increase in cost and a meaningful latency hit for users. Haiku produces specific, grounded framings at a price point that makes the product viable at scale.
+
+The fallback uses OpenAI rather than a second Claude attempt because real redundancy means different infrastructure. If Claude's API is experiencing issues, retrying Claude fails the same way. gpt-4o-mini has comparable pricing and speed and runs on entirely separate systems — making it a meaningful safety net rather than a retry loop.
+
+### Switching LLMs
+
+Changing the primary model is a one-line edit in `lib/config.ts`:
+
+```typescript
+llm: {
+  providers: {
+    claude: { model: "claude-haiku-4-5-20251001" }, // change this
+    openai: { model: "gpt-4o-mini" }                // or this
+  }
+}
+```
+
+No other file needs to change. Both providers receive the identical prompt from `buildPrompt()` in `lib/claude.ts`, which is the single source of truth. Adding a new LLM provider means writing a `callProvider()` function and a routing branch — the prompt, scoring, and analytics all stay unchanged. This felt important to design carefully given how quickly the LLM landscape is evolving. A model that is cheaper, faster, or more capable will emerge, and the architecture should make adopting it a small change rather than a refactor.
+
+The A/B experiment framework in `lib/experiments.ts` also supports live traffic splitting between providers — for example, routing 80% of sessions to Claude and 20% to OpenAI — so quality comparisons between models can be run on real traffic without a code deploy.
+
+### Cost, Latency, Reliability, and Safety
+
+**Cost.** Creator embeddings are computed once and stored — there is no per-creator embedding cost at runtime. Each user request costs one assignment embedding call (approximately $0.00002) plus one LLM framing call (approximately $0.001 to $0.003 at Haiku pricing). Total cost per request is well under half a cent.
+
+**Latency.** Embedding and scoring finishes in approximately 150ms. The SSE streaming pattern means the user sees their creator cards at that point — they do not wait for the LLM. The 2 to 4 second framing generation runs while they are reading. Effective perceived latency is around 200ms.
+
+**Reliability.** Claude is primary; gpt-4o-mini is the automatic hard fallback on any Claude failure. Both providers use the same prompt. A `provider_fallback` event is logged to PostHog whenever the switch occurs so the fallback rate is visible in dashboards.
+
+**Safety and guardrails.** Both Claude and OpenAI apply content filtering at the API level. Anthropic's engineering team works continuously to prevent the model from producing harmful outputs, which is a real advantage of using their API — I get those protections for free. The narrow role definition in the prompt ("creative strategist for nonprofit TikTok campaigns") further limits the surface area for off-topic or harmful responses.
+
+One honest limitation: large LLM providers are designed to be politically neutral and will resist taking partisan positions. If a nonprofit campaign required the AI to speak directly to political leanings or take a clear stance, the current provider-level filters would likely interfere. That is a genuine tradeoff worth naming.
+
+API keys are never sent to the browser. All LLM calls happen inside Next.js route handlers on the server.
+
+### The Prompt
+
+Both Claude and gpt-4o-mini receive the same prompt on every request. I chose to give the model significant structural guidance — it receives the full creator profiles, not just names, so it can write framings that reference real evidence from each creator's history. The explicit prohibitions ("do NOT invent campaign details," "do NOT fill gaps with assumptions") are the most important lines in the prompt: without them, the model confidently constructs plausible-sounding campaigns from creator profile data when the brief is sparse, which looks impressive but is fabricated.
 
 ```
 You are a creative strategist helping a nonprofit match with TikTok creators
@@ -142,76 +193,137 @@ Match score: 48/100
 YOUR TASK:
 For each creator, write two things:
 
-1. matchExplanation (1–3 sentences): Why this specific creator is a strong fit
+1. matchExplanation (1-3 sentences): Why this specific creator is a strong fit
    for this specific assignment. Reference their actual niche, tone, audience,
-   or values — do NOT write generic praise like "they have great engagement."
+   or values -- do NOT write generic praise like "they have great engagement."
    Be concrete. Do NOT invent campaign details that aren't explicitly stated
    in the brief.
 
-2. suggestedFraming (2–4 sentences): A concrete, personalized content concept
+2. suggestedFraming (2-4 sentences): A concrete, personalized content concept
    this creator could execute. Tailor it to their established style and their
    audience's interests. Respect any constraints stated in the context field.
-   Make each creator's framing distinct — do not repeat the same angle across
+   Make each creator's framing distinct -- do not repeat the same angle across
    all three. Do NOT fill gaps in the brief with assumptions about what the
    campaign might be.
 
 Respond with valid JSON only. No markdown, no code fences, no explanation
-outside the JSON:
-{
-  "creators": [
-    { "uniqueId": "exact_unique_id", "matchExplanation": "...", "suggestedFraming": "..." }
-  ]
-}
+outside the JSON.
 
 IMPORTANT: Return exactly 3 creators. The uniqueId must exactly match the
 creator's uniqueId shown above. Return creators in the same order they appear above.
 ```
 
-Both Claude and OpenAI receive the same prompt — `buildPrompt` is the single source of truth. Adding a provider means adding a call function and a routing branch, not rewriting the prompt.
+The single-batch approach — one call for all three creators — is intentional. It is cheaper (the assignment context is sent once, not three times), faster (one network round-trip), and produces more distinct framings because the model sees all three creators simultaneously and naturally avoids repeating the same angle.
 
 ---
 
-## Guardrails
+## Data Collection
 
-### Brief quality gate (code-side)
+I use [PostHog](https://posthog.com) for analytics. PostHog is free up to 1 million events per month — at 5 to 7 events per user request, that covers roughly 150,000 matches per month before any cost kicks in. Beyond the free tier, pricing is low enough that analytics cost is essentially never the binding constraint.
 
-Before any LLM call is made, `generateFramings()` checks that each required field (topic, key takeaway, context) contains at least 3 meaningful words. If not, it returns a canned "brief insufficient" response immediately — no API call, no cost, no invented content.
+Each request fires two PostHog LLM Observability events (`$ai_generation`) — one for the embedding call and one for the framing call — linked by a shared trace ID so they appear together in a single trace view. This gives visibility into per-request total cost, latency by provider, input and output token counts, and fallback rate, all without custom queries.
 
-This is intentionally in code, not in the prompt. The LLM sees rich creator profiles alongside the brief and will use them to construct a plausible campaign even when the brief is empty. Prompting it to self-police that behavior is unreliable. A deterministic pre-flight check is the right tool.
+Other tracked events:
 
-### Prompt constraints
+| Event | When |
+|-------|------|
+| `assignment_submitted` | Form submitted |
+| `match_completed` | Scoring and framing finished |
+| `provider_fallback` | Claude failed, OpenAI took over |
+| `ui_interaction` | Client-side button clicks and actions |
+| `$pageview` | Each page navigation |
 
-The framing prompt explicitly instructs the model not to invent campaign details, reference only information actually stated in the brief, and make each creator's framing distinct. These are secondary guardrails for edge cases that pass the quality gate but are still sparse.
+The cost breakdown across models — Claude Haiku, GPT-4o Mini, and OpenAI Embeddings — is visible directly in PostHog's LLM Observability dashboard:
 
-### Provider-level safety
+![PostHog cost breakdown by model: Claude Haiku, GPT-4o Mini, and OpenAI Embeddings](public/ai_cost_comparison.png)
 
-Both Claude and OpenAI apply content filtering at the API level. The narrow role definition in the system prompt ("creative strategist for nonprofit TikTok campaigns") limits the surface area for off-topic or harmful outputs.
+PostHog also captures granular UI interactions alongside pageviews, so it is possible to see exactly where users engage in the form — down to which specific field they clicked:
 
-### API key isolation
+![PostHog activity log showing pageviews and UI interactions including field-level clicks](public/activity_log.png)
 
-All LLM calls happen inside Next.js route handlers. API keys never reach the browser. The client only receives the final processed JSON.
+Each LLM call is stored with its full input and output, token counts, latency, and estimated cost. The input text is collapsed in the view below due to its size, but it is fully accessible for debugging or prompt auditing:
 
-### What's not yet in place (production path)
+![PostHog LLM call detail view with token counts and cost data, input text collapsed](public/llm_activity_log_opened.png)
 
-- **Input sanitization** — strip prompt injection patterns (e.g. "ignore previous instructions") from brief fields before they enter the prompt
-- **Output moderation** — run generated framings through OpenAI's Moderation API before sending to the client
-
----
-
-## What's Next (1–2 Weeks)
-
-1. **Stream LLM tokens word-by-word** — framings appear as they're typed; eliminates the shimmer wait entirely
-2. **Track creator selection** — log which creator the user acts on, not just which are surfaced; drives empirical weight tuning
-3. **Structured output mode** — guaranteed-schema JSON from Claude and OpenAI eliminates the parse-failure → fallback path
-4. **Tune dimension weights** — once selection data exists, experiment with weights in `config.matching.dimensionWeights` and measure against click-through
-5. **Input sanitization + output moderation** — strip prompt injection patterns, run framings through OpenAI Moderation API before display
+The A/B experiment framework is built to work alongside PostHog: every analytics event includes the user's current variant assignments, so any Insights query can be filtered or broken down by experiment variant. The infrastructure is in place to run experiments and measure their effect on any tracked metric — latency, fallback rate, or any future engagement signal we add.
 
 ---
 
-## Docs
+## Scope Choices
 
-| Document | Audience | What's in it |
-|----------|----------|-------------|
-| [PLANNING.md](PLANNING.md) | Product / stakeholders | Questions faced, options considered, decisions made, and reasoning — the "why" behind each choice |
-| [ENGINEERING.md](ENGINEERING.md) | Engineers | API contracts, module responsibilities, configuration reference, how to add creators, PostHog setup, hardening path |
-| [CLAUDE.md](CLAUDE.md) | Claude Code | Dev commands, key files, common tasks, coding rules, where not to use AI |
+### Tech Stack
+
+| Layer | Choice | Alternatives considered |
+|-------|--------|------------------------|
+| Framework | Next.js 16 (App Router) | Express + React, Remix, SvelteKit |
+| UI | React 19 + Tailwind CSS v4 | Styled Components, CSS Modules, plain CSS |
+| Language | TypeScript (strict) | JavaScript |
+| Primary LLM | Claude Haiku | GPT-4o-mini only, Gemini Flash |
+| Embeddings | OpenAI text-embedding-3-small | Cohere Embed, local models (e.g. all-MiniLM) |
+| Linter | Biome | ESLint + Prettier |
+| Analytics | PostHog | Mixpanel, Amplitude, custom logging |
+| Deployment | Vercel | Railway, Render, AWS Amplify |
+
+### Architecture: Modular Monolith
+
+For a project of this scope, a modular monolith is the right call. The entire app fits in a single Next.js repo: the API route handlers live alongside the React components, the shared types are imported by both, and deployment is a single `git push`. There is no inter-service network latency, no distributed tracing overhead, no service discovery — just clean module boundaries within one process.
+
+The module structure is already drawn as if these were independent services. `lib/scoring.ts` knows nothing about `lib/claude.ts`. `lib/analytics.ts` has no import from `lib/embeddings.ts`. If the system needed to grow into microservices, each module maps directly to a service — the interfaces are already the right shape. For a takehome prototype this structure gives all the organizational benefits of microservices without the operational cost.
+
+### On TypeScript
+
+After Hugh mentioned TypeScript in our conversation, I looked into it and decided to use it for this project. I am glad I did. The LLM response pipeline involves several data transformations — raw JSON from the API, a parsed `FramingResponse`, a `ScoredCreator` array, and a final `MatchResult` — and TypeScript catches shape mismatches at compile time rather than letting them surface as runtime bugs in production. The strict mode setting means `undefined` can never sneak through unexpectedly. The shared `types/index.ts` file means the client and server components are guaranteed to agree on the shape of every data structure. For a project where the most fragile piece is parsing LLM JSON output, that compile-time confidence is genuinely valuable.
+
+---
+
+## Changes I Would Make for Production
+
+**Move to a cloud-native microservices architecture.** The modular monolith is appropriate for a prototype but would become a scaling bottleneck in production. I would separate the matching service (embedding + scoring) from the framing service (LLM generation) and from the frontend. Running them on AWS ECS Fargate or similar gives independent scaling — if framing load spikes, only framing instances scale; if the matching service is fast and cheap, it stays at a lower replica count. I would move off Vercel for the API tier specifically, since Vercel's serverless functions have cold start latency and execution time limits that matter for SSE connections. The frontend could stay on Vercel or move to CloudFront.
+
+**Build out the security layer properly.** Right now there is no authentication, no rate limiting, and no input sanitization. In production I would add authentication (Clerk or Auth0 with RBAC so only authorized clients can submit), per-session and per-IP rate limiting via Upstash Redis, and input sanitization that strips prompt injection patterns (things like "ignore previous instructions") from brief fields before they enter the prompt.
+
+**Invest more in LLM guardrails.** Provider-level content filtering is a good baseline but a determined bad actor could still coerce the model into producing content that damages Drumbeat's reputation. In production I would add a moderation pass: run generated framings through OpenAI's Moderation API before sending them to the client, and consider a secondary review prompt for any framing that scores above a sensitivity threshold. I would also explore Anthropic's Constitutional AI features for additional constraints at the generation level.
+
+**Deepen the PostHog integration.** I would add event capture for which creator a user ultimately selects or copies a framing from — right now we know which creators are surfaced but not which one the user acts on. That outcome signal is what makes the rest of the analytics actionable: you can start running real experiments on dimension weights and measure whether weight changes lead to higher selection rates for the top match. I would also set up PostHog's session replay (currently disabled to avoid a cross-origin warning in the browser) and use it to watch how real users navigate the results page. Funnel analysis from form submission to creator selection would tell us whether the progressive loading approach actually reduces abandonment.
+
+**Take GDPR seriously.** The creator dataset includes profiles from the EU and UK. Before expanding to serve EU nonprofits or accepting EU creator data, I would review GDPR obligations — specifically around consent for data storage, the right to erasure, and data residency requirements. I would also confirm that our PostHog configuration routes EU user data to an EU-hosted PostHog instance rather than the US endpoint.
+
+**Align with Drumbeat's legal documents.** I would review the privacy policy and terms of service at hellodrumbeat.com and make sure every data collection and processing decision in the app is covered by those documents. I would also add the current privacy policy URL to `CLAUDE.md` so any future AI-assisted development has context about what commitments the company has made to users.
+
+---
+
+## A Note on Creator Profile Images
+
+The `data/creators.json` file includes avatar URLs that are example.com placeholder links generated by ChatGPT — they return 404s when fetched. I chose not to modify the creators.json file to preserve the integrity of the assignment data as provided. Instead, I treated it as an opportunity to demonstrate graceful error handling: the app detects placeholder URLs before making any network request, and displays the creator's initials in a styled avatar circle instead. This is the same pattern a production app would use for any user whose profile image fails to load.
+
+---
+
+## What I Would Do Next (1 to 2 More Weeks)
+
+**Address the sparse brief problem more robustly.** The AI handles a lack of context poorly. Despite my best prompt engineering, when given minimal input it hallucinates a plausible-sounding assignment based on the creator profiles — it sees rich creator data and uses it to infer what the campaign probably is. I had a naive word-count check in place briefly, but removed it: it was not worth the tradeoff, because a bad actor could trivially bypass it with nonsense words ("hello goodbye why how"), and it penalized real users whose legitimate briefs happened to be terse. The right solution would be an LLM review step that evaluates whether the input is coherent and actionable before proceeding to matching. The honest tradeoff is that this adds latency for every user to prevent a scenario that affects very few — I am not convinced that is the right call, and I would want to discuss it with the team before implementing it.
+
+**Clean up the mobile experience.** The app was designed assuming desktop use, and while I have made some recent improvements to mobile layout, there is more to do — particularly around the results page and how creator cards stack on narrow screens.
+
+**Invest more in prompt engineering.** The current prompt produces good results but I have not systematically tested edge cases — campaigns with unusual constraints, very short briefs that pass any quality gate, or assignments that span multiple topics. I would spend time generating a test set of representative assignments and evaluating framing quality across it.
+
+**Run real A/B experiments on scoring weights.** The current weights (semantic 60%, audience 15%, values 15%, tone 5%, engagement 5%) are informed priors, not empirically validated. Once outcome tracking (which creator gets selected) is in place, I would run experiments in `lib/experiments.ts` that vary these weights and measure whether different distributions lead to higher selection rates for the top match.
+
+**Discuss my decisions with the team.** There are several UI choices I made that I have genuine uncertainty about. Should the optional fields be collapsed by default — or does presenting them open-by-default increase brief quality and match precision, at the risk of making the form feel longer? Should the submit button always be visible on screen so users never wonder if they need to scroll down? These are the kinds of decisions that benefit enormously from real user feedback, and I would want to get eyes on the app quickly rather than over-engineer them in isolation.
+
+**Address political content limitations.** If Drumbeat needs the AI to speak directly to political leanings or take a clear stance that aligns with a client's perspective, the current provider-level filters will resist that. I would first try prompt engineering to see how far I can push it, but the honest answer is that accomplishing this reliably would likely require investing in a fine-tuned or self-hosted model. That is likely not worth pursuing until much later.
+
+---
+
+## Project Documentation
+
+Three supporting documents are included in this repository, each written for a different audience:
+
+- [PLANNING.md](PLANNING.md) — Written for product stakeholders and hiring reviewers. Covers every major decision I faced, the options I considered, and the reasoning behind each choice. This is the "why" document.
+
+- [ENGINEERING.md](ENGINEERING.md) — Written for engineers who would work on or extend the codebase. Covers API contracts, module responsibilities, configuration reference, how to add creators, PostHog observability setup, and the hardening path to production.
+
+- [CLAUDE.md](CLAUDE.md) — Written for Claude Code (my AI coding assistant). Contains dev commands, key files, common tasks, coding rules, and an explicit list of where not to use AI in this codebase. This file shapes how the assistant thinks about contributions to the project.
+
+---
+
+Thank you to Hannah and Hugh for putting together this project and giving me the opportunity to work on it. I had a genuinely good time building this — it is the kind of problem where every layer has an interesting decision in it, and I found myself going deeper than I expected on several of them. I hope it reflects well, and I look forward to hearing from you soon!

@@ -160,12 +160,11 @@ During testing, submitting near-empty fields (e.g. "a" in every box) produced co
 **First attempt: prompt instruction.**
 Added a BRIEF QUALITY CHECK block to the prompt telling the model to detect insufficient input and respond with a disclaimer rather than invented content. This failed: the model sees rich creator profiles alongside the sparse brief, infers a plausible campaign from the creator data, and ignores the instruction. Asking an LLM to override its own inference tendency with a prompt rule is unreliable.
 
-**Decision: code-side pre-flight check.**
-`generateFramings()` in `lib/claude.ts` now checks word count on the three required fields before building the prompt or making any API call. If any required field has fewer than 3 words, it returns canned "brief insufficient" text without calling the LLM at all. The response explains what a useful brief needs.
+**Second attempt: code-side word-count check.**
+`generateFramings()` added a pre-flight word-count guard: if any required field had fewer than 3 words, it returned canned "brief insufficient" text without calling the LLM. Deterministic, cheap, fast.
 
-This is more reliable (deterministic), cheaper (saves an LLM call on garbage input), and faster. It also cleanly separates concerns: the LLM is only asked to do what it's good at — writing framings for real briefs — not to perform input validation.
-
-**What this reinforces:** input validation is a deterministic problem. It belongs in code, not in a prompt. This was already a stated principle in the architecture; the bug made it concrete.
+**Current state: removed.**
+The word-count gate was removed because it wasn't worth the tradeoff. A bad actor can trivially bypass it with nonsense words ("hello goodbye why how"), so it provides no real protection. And it penalizes legitimate users whose valid briefs happen to be terse. The failure mode (fabricated framings from sparse input) only occurs when a user is actively providing garbage — it's not a silent bug, it's visible output that the user can immediately reject and resubmit with a better brief. The right solution if this becomes a real concern is an LLM coherence-check step, but that adds latency for every user to guard against a scenario that affects very few.
 
 ---
 
@@ -202,7 +201,7 @@ The implementation required bubbling token usage from `embedBatch()` → `getTop
 
 **What was optimized for:**
 - **Speed of first result.** Creator cards in ~200ms. The user never stares at a blank screen.
-- **Progressive disclosure.** Required fields first, optional fields in a separate card below. A first-time user submits a valid brief without reading documentation.
+- **Progressive disclosure.** Required fields always visible. Optional fields and scoring weight sliders live in a collapsible "Advanced Matching Settings" card — closed by default, so a first-time user submits a valid brief without reading documentation or feeling overwhelmed.
 - **Results that explain themselves.** "Why they match" in 1–3 sentences. "Suggested Post Framing" as a concrete content concept. The Top Match badge and border nudge without mandating.
 - **Graceful failure.** Inline per-field errors (not page-level alerts), automatic LLM fallback (Claude → OpenAI), and a user-readable error message if both fail.
 

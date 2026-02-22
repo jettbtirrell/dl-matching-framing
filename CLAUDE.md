@@ -62,7 +62,7 @@ NEXT_PUBLIC_POSTHOG_HOST=https://app.posthog.com  # Client-side host
 | `app/results/page.tsx` | Final results display |
 | `data/creators.json` | Creator profiles (source of truth) |
 | `data/creator-embeddings.json` | Pre-computed 1536D vectors — committed, rebuilt by `generate-embeddings` |
-| `types/index.ts` | Shared TypeScript types: Creator, Assignment, ScoredCreator, MatchResult |
+| `types/index.ts` | Shared TypeScript types: Creator, Assignment, DimensionWeights, ScoredCreator, MatchResult |
 
 ---
 

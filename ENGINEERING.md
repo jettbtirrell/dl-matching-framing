@@ -55,7 +55,7 @@ data/
   creators.json              Creator profiles (source of truth)
   creator-embeddings.json    Pre-computed 1536D vectors (committed, rebuilt by generate-embeddings)
 
-types/index.ts    Shared TypeScript types: Creator, Assignment, ScoredCreator, MatchResult
+types/index.ts    Shared TypeScript types: Creator, Assignment, DimensionWeights, ScoredCreator, MatchResult
 ```
 
 ---
@@ -72,9 +72,14 @@ types/index.ts    Shared TypeScript types: Creator, Assignment, ScoredCreator, M
   "context": "string (required)",
   "targetAudience": "string (optional)",
   "values": "string (optional)",
-  "tone": "string (optional)"
+  "tone": "string (optional)",
+  "weights": {
+    "semantic": 60, "audience": 15, "values": 15, "tone": 5, "engagement": 5
+  }
 }
 ```
+
+`weights` is optional. All five keys must be present and be finite numbers ≥ 0; otherwise the object is ignored and config defaults are used. The client always sends it (initialized to config defaults), so PostHog always captures the active weight distribution.
 
 **Response:** `text/event-stream` (SSE)
 

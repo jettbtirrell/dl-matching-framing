@@ -68,6 +68,23 @@ export interface Assignment {
 }
 
 // ---------------------------------------------------------------------------
+// Matching weights — per-submission user overrides
+// ---------------------------------------------------------------------------
+
+/**
+ * Relative importance weights for the five scoring dimensions.
+ * Values are normalized at runtime so they don't need to sum to any total —
+ * only the ratios matter. All values must be >= 0.
+ */
+export interface DimensionWeights {
+  semantic:   number;
+  audience:   number;
+  values:     number;
+  tone:       number;
+  engagement: number;
+}
+
+// ---------------------------------------------------------------------------
 // Scoring + results
 // ---------------------------------------------------------------------------
 

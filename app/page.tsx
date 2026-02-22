@@ -24,7 +24,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { Assignment, ScoredCreator } from "@/types";
+import type { Assignment, DimensionWeights, ScoredCreator } from "@/types";
 import { config } from "@/lib/config";
 
 // ─── Form field config ────────────────────────────────────────────────────────
@@ -61,6 +61,80 @@ const OPTIONAL_FIELDS = [
     mobileCls: "max-sm:min-h-20",
   },
 ];
+
+// ─── Slider dimensions ────────────────────────────────────────────────────────
+const SLIDER_DIMENSIONS: {
+  key: keyof DimensionWeights;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: "semantic",
+    label: "Overall Topic Fit",
+    description: "How closely the creator's general content aligns with your brief",
+  },
+  {
+    key: "audience",
+    label: "Audience Match",
+    description: "How well the creator's audience matches your target demographic",
+  },
+  {
+    key: "values",
+    label: "Creator Values",
+    description: "Alignment between your desired values and the creator's expressed beliefs",
+  },
+  {
+    key: "tone",
+    label: "Content Tone",
+    description: "How closely the creator's style matches your requested tone",
+  },
+  {
+    key: "engagement",
+    label: "Engagement Rate",
+    description: "Creator's historical heart-to-follower ratio",
+  },
+];
+
+// ─── Weight slider ────────────────────────────────────────────────────────────
+function WeightSlider({
+  label,
+  description,
+  sliderKey,
+  value,
+  totalWeight,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  sliderKey: keyof DimensionWeights;
+  value: number;
+  totalWeight: number;
+  onChange: (key: keyof DimensionWeights, value: number) => void;
+}) {
+  const effectivePct =
+    totalWeight > 0 ? Math.round((value / totalWeight) * 100) : 0;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-text-primary">{label}</span>
+        <span className="min-w-[2.5rem] shrink-0 text-right text-xs font-semibold tabular-nums text-brand">
+          {effectivePct}%
+        </span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={value}
+        onChange={(e) => onChange(sliderKey, Number(e.target.value))}
+        className="w-full cursor-pointer accent-brand"
+        aria-label={label}
+      />
+      <p className="text-xs text-text-subtle">{description}</p>
+    </div>
+  );
+}
 
 // ─── Field error ─────────────────────────────────────────────────────────────
 /** Inline validation message shown below a required field that was left empty. */
@@ -314,6 +388,18 @@ export default function HomePage() {
     context: false,
   });
 
+  // Dimension weights for the Advanced Matching Options panel.
+  // Integers on a 0–100 scale matching config defaults × 100.
+  // Normalization happens in scoring.ts — only ratios matter.
+  const [weights, setWeights] = useState<DimensionWeights>({
+    semantic: 60,
+    audience: 15,
+    values: 15,
+    tone: 5,
+    engagement: 5,
+  });
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   ) {
@@ -341,6 +427,14 @@ export default function HomePage() {
   const topicInvalid = touched.topic && !form.topic.trim();
   const keyTakeawayInvalid = touched.keyTakeaway && !form.keyTakeaway.trim();
   const contextInvalid = touched.context && !form.context.trim();
+
+  function handleWeightChange(key: keyof DimensionWeights, value: number) {
+    setWeights((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function resetWeights() {
+    setWeights({ semantic: 60, audience: 15, values: 15, tone: 5, engagement: 5 });
+  }
 
   // ─── UI event tracker ──────────────────────────────────────────────────────
   /** Fire-and-forget: POST a UI event to the server analytics endpoint. */
@@ -376,7 +470,7 @@ export default function HomePage() {
       const response = await fetch("/api/match", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, weights }),
       });
 
       // Validation failures (400s) return plain JSON, not SSE.
@@ -620,56 +714,135 @@ export default function HomePage() {
             </div>
           </div>
 
-          {/* Optional fields */}
-          <div className="card flex flex-col gap-6">
-            <div>
-              <span className="text-sm font-semibold text-text-primary">
-                Optional
-              </span>
-              <p className="mt-0.5 text-xs text-text-muted">
-                More detail = more precise matching
-              </p>
-            </div>
-
-            {OPTIONAL_FIELDS.map((field) => (
-              <div key={field.name} className="flex flex-col gap-2">
-                <label
-                  htmlFor={field.name}
-                  className="text-sm font-medium text-text-primary"
+          {/* Advanced Matching Settings (optional fields + weight sliders) */}
+          {(() => {
+            const totalWeight = Object.values(weights).reduce(
+              (sum, v) => sum + v,
+              0,
+            );
+            return (
+              <div className="card flex flex-col gap-0 overflow-hidden">
+                {/* Toggle header */}
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((p) => !p)}
+                  className="flex w-full items-center justify-between gap-4 py-1 text-left"
+                  aria-expanded={showAdvanced}
                 >
-                  {field.label}
-                </label>
-                {field.textarea ? (
-                  <textarea
-                    id={field.name}
-                    name={field.name}
-                    rows={field.rows ?? 1}
-                    style={{ overflowY: "hidden" }}
-                    className={`form-input resize-none ${field.mobileCls ?? ""}`}
-                    placeholder={field.placeholder}
-                    value={form[field.name] ?? ""}
-                    onChange={handleChange}
-                    maxLength={field.maxChars}
-                  />
-                ) : (
-                  <input
-                    id={field.name}
-                    name={field.name}
-                    type="text"
-                    className="form-input"
-                    placeholder={field.placeholder}
-                    value={form[field.name] ?? ""}
-                    onChange={handleChange}
-                    maxLength={field.maxChars}
-                  />
+                  <div>
+                    <span className="text-sm font-semibold text-text-primary">
+                      Advanced Matching Settings
+                    </span>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      Optional fields and scoring weights — more detail = more
+                      precise matching
+                    </p>
+                  </div>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    width="16"
+                    height="16"
+                    className={`shrink-0 text-text-muted transition-transform duration-200${showAdvanced ? " rotate-180" : ""}`}
+                    aria-hidden="true"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </button>
+
+                {showAdvanced && (
+                  <div className="mt-6 flex flex-col gap-6 border-t border-border-subtle pt-6">
+                    {/* Optional text fields */}
+                    {OPTIONAL_FIELDS.map((field) => (
+                      <div key={field.name} className="flex flex-col gap-2">
+                        <label
+                          htmlFor={field.name}
+                          className="text-sm font-medium text-text-primary"
+                        >
+                          {field.label}
+                        </label>
+                        {field.textarea ? (
+                          <textarea
+                            id={field.name}
+                            name={field.name}
+                            rows={field.rows ?? 1}
+                            style={{ overflowY: "hidden" }}
+                            className={`form-input resize-none ${field.mobileCls ?? ""}`}
+                            placeholder={field.placeholder}
+                            value={form[field.name] ?? ""}
+                            onChange={handleChange}
+                            maxLength={field.maxChars}
+                          />
+                        ) : (
+                          <input
+                            id={field.name}
+                            name={field.name}
+                            type="text"
+                            className="form-input"
+                            placeholder={field.placeholder}
+                            value={form[field.name] ?? ""}
+                            onChange={handleChange}
+                            maxLength={field.maxChars}
+                          />
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-text-subtle">
+                            {field.hint}
+                          </span>
+                          <CharCount
+                            value={form[field.name] ?? ""}
+                            max={field.maxChars}
+                          />
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Scoring weights divider */}
+                    <div className="flex items-center gap-3">
+                      <div className="h-px flex-1 bg-border-subtle" />
+                      <span className="text-xs font-semibold uppercase tracking-wider text-text-subtle">
+                        Scoring Weights
+                      </span>
+                      <div className="h-px flex-1 bg-border-subtle" />
+                    </div>
+
+                    <p className="text-xs text-text-subtle">
+                      Audience Match, Creator Values, and Content Tone only
+                      activate when you fill in the optional fields above.
+                    </p>
+
+                    {/* Sliders */}
+                    {SLIDER_DIMENSIONS.map((dim) => (
+                      <WeightSlider
+                        key={dim.key}
+                        label={dim.label}
+                        description={dim.description}
+                        sliderKey={dim.key}
+                        value={weights[dim.key]}
+                        totalWeight={totalWeight}
+                        onChange={handleWeightChange}
+                      />
+                    ))}
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={resetWeights}
+                        className="text-xs text-text-muted underline-offset-2 hover:text-text-secondary hover:underline"
+                      >
+                        Reset weights to defaults
+                      </button>
+                    </div>
+                  </div>
                 )}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-text-subtle">{field.hint}</span>
-                  <CharCount value={form[field.name] ?? ""} max={field.maxChars} />
-                </div>
               </div>
-            ))}
-          </div>
+            );
+          })()}
 
           {/* Error message */}
           {error && (

@@ -53,7 +53,7 @@
  */
 
 import creatorsData from "@/data/creators.json";
-import type { Assignment, Creator, ScoredCreator } from "@/types";
+import type { Assignment, Creator, DimensionWeights, ScoredCreator } from "@/types";
 import { config } from "@/lib/config";
 import {
   assignmentToText,
@@ -83,6 +83,7 @@ export interface TopCreatorsResult {
  */
 export async function getTopCreators(
   assignment: Assignment,
+  weightOverrides?: Partial<DimensionWeights>,
 ): Promise<TopCreatorsResult> {
   // ── Build the batch of assignment texts to embed ──────────────────────────
   // Index 0 is always the full-profile query. Optional dimension texts are
@@ -117,7 +118,17 @@ export async function getTopCreators(
   const valuesVec   = dimIdx.values   !== undefined ? assignmentVecs[dimIdx.values]   : null;
   const toneVec     = dimIdx.tone     !== undefined ? assignmentVecs[dimIdx.tone]     : null;
 
-  const w = config.matching.dimensionWeights;
+  // Merge config defaults with any per-submission user overrides.
+  // User-supplied values are clamped to >= 0; runtime normalization handles
+  // the rest so absolute scale doesn't matter — only ratios do.
+  const defaults = config.matching.dimensionWeights;
+  const w: DimensionWeights = {
+    semantic:   Math.max(0, weightOverrides?.semantic   ?? defaults.semantic),
+    audience:   Math.max(0, weightOverrides?.audience   ?? defaults.audience),
+    values:     Math.max(0, weightOverrides?.values     ?? defaults.values),
+    tone:       Math.max(0, weightOverrides?.tone       ?? defaults.tone),
+    engagement: Math.max(0, weightOverrides?.engagement ?? defaults.engagement),
+  };
 
   // ── Score every creator ───────────────────────────────────────────────────
   const scored = ALL_CREATORS.map((creator): ScoredCreator => {
@@ -162,6 +173,7 @@ export async function getTopCreators(
     if (toneScore     !== null) { score += w.tone     * toneScore;     totalWeight += w.tone;     }
 
     score /= totalWeight; // normalise to [0, 1]
+    if (!Number.isFinite(score)) score = 0; // guard: all weights zero
 
     // Geographic penalty applied after combination
     if (creator.region !== "US") {

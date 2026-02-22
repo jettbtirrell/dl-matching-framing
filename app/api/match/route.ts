@@ -42,7 +42,7 @@ import { logEvent, computeEmbeddingCost } from "@/lib/analytics";
 import { getAllVariants, getVariant, isExperimentEnabled } from "@/lib/experiments";
 import { getTopCreators } from "@/lib/scoring";
 import { config } from "@/lib/config";
-import type { Assignment } from "@/types";
+import type { Assignment, DimensionWeights } from "@/types";
 
 export async function POST(request: NextRequest) {
   // Parse the request body.
@@ -99,6 +99,27 @@ export async function POST(request: NextRequest) {
         : undefined,
   };
 
+  // Extract optional user-submitted weight overrides.
+  // All five keys must be present and be finite numbers >= 0; otherwise ignored.
+  let weightOverrides: DimensionWeights | undefined;
+  const rawWeights = data.weights;
+  if (rawWeights !== null && rawWeights !== undefined && typeof rawWeights === "object" && !Array.isArray(rawWeights)) {
+    const rw = rawWeights as Record<string, unknown>;
+    const keys: (keyof DimensionWeights)[] = ["semantic", "audience", "values", "tone", "engagement"];
+    const allValid = keys.every(
+      (k) => typeof rw[k] === "number" && Number.isFinite(rw[k]) && (rw[k] as number) >= 0,
+    );
+    if (allValid) {
+      weightOverrides = {
+        semantic:   rw.semantic   as number,
+        audience:   rw.audience   as number,
+        values:     rw.values     as number,
+        tone:       rw.tone       as number,
+        engagement: rw.engagement as number,
+      };
+    }
+  }
+
   // ── Session management ────────────────────────────────────────────────────
   // Read the persistent session cookie (set on first visit).
   // If absent, generate a new UUID and write it into the response headers.
@@ -112,7 +133,7 @@ export async function POST(request: NextRequest) {
   const variants = getAllVariants(sessionId);
 
   // Log the form submission before any async work begins.
-  void logEvent("assignment_submitted", sessionId, { ...assignment, variants });
+  void logEvent("assignment_submitted", sessionId, { ...assignment, variants, weights: weightOverrides ?? null });
 
   const encoder = new TextEncoder();
 
@@ -138,7 +159,7 @@ export async function POST(request: NextRequest) {
         // Send the scored creators immediately so the client can render creator
         // cards while Claude is still working on framings.
         const embedStart = Date.now();
-        const { creators: topCreators, embeddingTokens } = await getTopCreators(assignment);
+        const { creators: topCreators, embeddingTokens } = await getTopCreators(assignment, weightOverrides);
         const embedLatencyMs = Date.now() - embedStart;
 
         // Log the embedding call as a $ai_generation event so it appears in

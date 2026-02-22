@@ -162,49 +162,6 @@ function parseFramingResponse(raw: string, provider: string): FramingResponse {
   return parsed;
 }
 
-// ---------------------------------------------------------------------------
-// Brief quality gate
-// ---------------------------------------------------------------------------
-
-/** Minimum meaningful word count for each required brief field. */
-const MIN_BRIEF_WORDS = 3;
-
-function wordCount(s: string): number {
-  return s.trim().split(/\s+/).filter(Boolean).length;
-}
-
-/**
- * Returns true if the brief contains enough real content to generate
- * meaningful framings. Checks word count on the three required fields.
- *
- * WHY CODE, NOT PROMPT?
- * Asking the LLM to self-police a quality check is unreliable — it sees rich
- * creator profiles alongside the sparse brief and uses them to infer a
- * plausible campaign anyway. A deterministic pre-flight check short-circuits
- * the LLM call entirely when the brief is clearly insufficient.
- */
-function isBriefSufficient(assignment: Assignment): boolean {
-  return (
-    wordCount(assignment.topic)       >= MIN_BRIEF_WORDS &&
-    wordCount(assignment.keyTakeaway) >= MIN_BRIEF_WORDS &&
-    wordCount(assignment.context)     >= MIN_BRIEF_WORDS
-  );
-}
-
-/** Canned results returned when the brief fails the quality gate. No LLM call is made. */
-function insufficientBriefResults(scoredCreators: ScoredCreator[]): MatchResult[] {
-  return scoredCreators.map((sc) => ({
-    creator: sc.creator,
-    score: sc.score,
-    matchExplanation:
-      "The assignment brief doesn't contain enough information to evaluate this match. " +
-      "A useful brief needs at minimum a clear topic, a specific key takeaway, and campaign context.",
-    suggestedFraming:
-      "To generate a meaningful framing, please fill in a real campaign topic, " +
-      "what you want the audience to walk away knowing or doing, and any relevant context or constraints. ",
-  }));
-}
-
 /**
  * Merge parsed creator framings back with the original scored creators.
  * Primary lookup by uniqueId; positional fallback handles minor casing/prefix differences.
@@ -328,16 +285,6 @@ export async function generateFramings(
   assignment: Assignment,
   options?: { preferredProvider?: LLMProviderName; analytics?: { sessionId: string; traceId: string } },
 ): Promise<FramingResult> {
-  if (!isBriefSufficient(assignment)) {
-    return {
-      results: insufficientBriefResults(scoredCreators),
-      provider: "claude",
-      latencyMs: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-    };
-  }
-
   const prompt = buildPrompt(scoredCreators, assignment);
   const preferred = options?.preferredProvider ?? config.llm.defaultProvider;
   const llmStart = Date.now();

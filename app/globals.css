@@ -92,6 +92,7 @@
     background-color: var(--color-surface-page);
     color: var(--color-text-primary);
     font-family: var(--font-sans);
+    overflow-x: hidden;
   }
 
   /* Scrollbar — warm tones to match the cream palette */

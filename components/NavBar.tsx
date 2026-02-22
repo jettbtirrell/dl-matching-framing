@@ -12,7 +12,7 @@
 
 export default function NavBar() {
   return (
-    <nav className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-drumbeat-navy px-17">
+    <nav className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-drumbeat-navy px-4 sm:px-17">
       {/* ── Logo ──────────────────────────────────────────────────────────── */}
       {/*
        * PRODUCTION NOTE: This image is served from Softr's CDN, which creates

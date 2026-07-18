@@ -6,10 +6,8 @@ import { PHProvider } from "@/components/PostHogProvider";
 import "./globals.css";
 
 /**
- * Why Poppins?
- * Drumbeat's production site uses Poppins (visible in their CSS).
- * Using the same font makes this prototype feel like a native Drumbeat
- * internal tool rather than a generic Next.js starter.
+ * Poppins is loaded as the brand font — see app/globals.css for the rest
+ * of the theme. Swap the font here and in globals.css to rebrand.
  *
  * We load only the weights we actually use (400, 500, 600) to keep
  * the page weight down. next/font/google handles self-hosting automatically,
@@ -23,7 +21,7 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "Creator Match — Drumbeat",
+  title: "Creator Match",
   description:
     "Find the right TikTok creators for your nonprofit campaign and get personalized post framings in seconds.",
 };

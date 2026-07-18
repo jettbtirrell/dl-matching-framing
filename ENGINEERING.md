@@ -1,4 +1,4 @@
-# Engineering PRD — Drumbeat Creator Matching
+# Engineering PRD — Creator Matching
 
 **Audience:** Engineers working on or extending this codebase.
 **Purpose:** Technical spec — API contracts, module structure, configuration, how to add creators, observability setup, and the path to production hardening.

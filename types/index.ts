@@ -1,5 +1,5 @@
 /**
- * Shared TypeScript types for the Drumbeat Creator Matching tool.
+ * Shared TypeScript types for the Creator Matching tool.
  *
  * Why a central types file: a single source of truth for data shapes used
  * across the API route, scoring logic, Claude wrapper, and UI pages. Any time
@@ -77,10 +77,10 @@ export interface Assignment {
  * only the ratios matter. All values must be >= 0.
  */
 export interface DimensionWeights {
-  semantic:   number;
-  audience:   number;
-  values:     number;
-  tone:       number;
+  semantic: number;
+  audience: number;
+  values: number;
+  tone: number;
   engagement: number;
 }
 

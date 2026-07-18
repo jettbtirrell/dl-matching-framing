@@ -1,17 +1,9 @@
 # Creator Matching and Personalized Assignment Framing
 
-By Jett Badalament-Tirrell
-
 A user (a nonprofit or client) enters a content assignment and goals. This product returns:
 
 - The top 3 available matching creators from a provided seed dataset, and
 - A personalized suggested framing and idea for a post for each creator, tailored to that creator's profile and the client's assignment
-
----
-
-## Live Application
-
-The deployed application is available at: **https://dl-take-home-exercise-jett.vercel.app**
 
 ---
 
@@ -60,7 +52,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 **Results that help the user decide.** The top-ranked match is highlighted with a distinct indigo border and a "Top Match" badge with a star. The match explanation references the creator's actual niche, tone, or audience, and I tried to minimize generic praise as much as possible. The suggested framing is a concrete content concept, not vague direction. Together, these give the user enough to act without needing a separate briefing document.
 
-**Brand cohesion.** I styled the application to match the look and feel of Drumbeat's current landing page at hellodrumbeat.com. I used the same font (Poppins), a warm cream palette, and the dark navy header and footer. For a bit of immersion, I added links back to the landing page, privacy policy, and terms of service. I recognize that in a real deployment the nonprofit's side of the market place would have a different landing page than that of the creators, but for a prototype I thought it was a fun addition!
+**Brand cohesion.** The application uses a consistent theme throughout: one font (Poppins), a warm cream palette, and a dark navy header and footer, all defined as CSS variables in `app/globals.css` so the whole look can be re-themed from one place. The navbar and footer also include a link back to a landing page and placeholder terms/privacy links, ready to be swapped for a real marketing site.
 
 **Resilience as a user experience decision.** If Claude goes down, the app automatically falls back to OpenAI with no user-facing error. The user never knows a provider switch happened. Perhaps this belongs outside of this section but I think of reliability as part of UX, an app that silently degrades gracefully leads to a better experience than one that surfaces infrastructure problems to the client.
 
@@ -264,11 +256,11 @@ The A/B experiment framework is built to work alongside PostHog: every analytics
 
 For a project of this scope, a modular monolith is the right call. The entire app fits in a single Next.js repo: the API route handlers live alongside the React components, the shared types are imported by both, and deployment is a single `git push`. There is no inter-service network latency, no distributed tracing overhead, and no service discovery, instead I just made sure to upkeep clean module boundaries within the one process.
 
-The module structure is already set up as if these were independent services. `lib/scoring.ts` knows nothing about `lib/claude.ts`. `lib/analytics.ts` has no import from `lib/embeddings.ts`. If the system needed to grow into microservices, each module maps directly to a service, as the interfaces are already the right shape. For a takehome prototype I think this was a reasonable choice since the structure gives all the organizational benefits of microservices at this scale.
+The module structure is already set up as if these were independent services. `lib/scoring.ts` knows nothing about `lib/claude.ts`. `lib/analytics.ts` has no import from `lib/embeddings.ts`. If the system needed to grow into microservices, each module maps directly to a service, as the interfaces are already the right shape. For a prototype at this scope, this was a reasonable choice since the structure gives all the organizational benefits of microservices without the operational overhead.
 
 ### On TypeScript
 
-After Hugh mentioned TypeScript in our conversation, I looked into it and decided to use it for this project. I am glad I did. The LLM response pipeline involves several data transformations such as: raw JSON from the API, a parsed `FramingResponse`, a `ScoredCreator` array, and a final `MatchResult`. TypeScript catches shape mismatches at compile time rather than letting them surface as runtime bugs in production. The strict mode setting means `undefined` can never sneak through unexpectedly. The shared `types/index.ts` file means the client and server components are guaranteed to agree on the shape of every data structure. I would say that the most fragile piece of this project is parsing the non-deterministic LLM JSON output, so that compile-time confidence is genuinely valuable!
+TypeScript was a natural fit for this project. The LLM response pipeline involves several data transformations such as: raw JSON from the API, a parsed `FramingResponse`, a `ScoredCreator` array, and a final `MatchResult`. TypeScript catches shape mismatches at compile time rather than letting them surface as runtime bugs in production. The strict mode setting means `undefined` can never sneak through unexpectedly. The shared `types/index.ts` file means the client and server components are guaranteed to agree on the shape of every data structure. The most fragile piece of this project is parsing the non-deterministic LLM JSON output, so that compile-time confidence is genuinely valuable.
 
 ---
 
@@ -278,13 +270,13 @@ After Hugh mentioned TypeScript in our conversation, I looked into it and decide
 
 **Build out the security layer properly.** Right now there is no authentication, no rate limiting, and no input sanitization. In production I would add authentication (Clerk or Auth0 with RBAC so only authorized clients can submit), per-session and per-IP rate limiting via Upstash Redis, and input sanitization that strips prompt injection patterns (things like "ignore previous instructions") from brief fields before they enter the prompt.
 
-**Invest more in LLM guardrails.** Provider-level content filtering is a good baseline but a determined bad actor could still coerce the model into producing content that damages Drumbeat's reputation. In production I would add a moderation pass such as running generated framings through OpenAI's Moderation API before sending them to the client, and consider a secondary review prompt for any framing that scores above a sensitivity threshold. It may also be worth exploring Anthropic's Constitutional AI features for additional constraints at the generation level (perhaps taking the best asepcts of both providers in terms of guardrails, regardless of which is being utilized).
+**Invest more in LLM guardrails.** Provider-level content filtering is a good baseline but a determined bad actor could still coerce the model into producing content that damages the brand behind the deployment. In production I would add a moderation pass such as running generated framings through OpenAI's Moderation API before sending them to the client, and consider a secondary review prompt for any framing that scores above a sensitivity threshold. It may also be worth exploring Anthropic's Constitutional AI features for additional constraints at the generation level (perhaps taking the best aspects of both providers in terms of guardrails, regardless of which is being utilized).
 
 **Deepen the PostHog integration.** I would add event capture for which creator a user ultimately selects or copies a framing from — right now we know which creators are surfaced but not which one the user acts on. That outcome signal is what makes the rest of the analytics actionable: you can start running real experiments on dimension weights and measure whether weight changes lead to higher selection rates for the top match. I would also set up PostHog's session replay and use it to watch how real users navigate the results page. Funnel analysis from form submission to creator selection would tell us whether the progressive loading approach actually reduces abandonment.
 
-**Take GDPR seriously.** The creator dataset includes profiles from the EU and UK. Before expanding to serve EU nonprofits or accepting EU creator data, I would deeply review GDPR obligations specifically around consent for data storage, the right to erasure, and data residency requirements (which I happen to be learning about right now in my ethics class!). I would also confirm that our PostHog configuration routes EU user data to an EU-hosted PostHog instance rather than the US endpoint.
+**Take GDPR seriously.** The creator dataset includes profiles from the EU and UK. Before expanding to serve EU nonprofits or accepting EU creator data, I would deeply review GDPR obligations specifically around consent for data storage, the right to erasure, and data residency requirements. I would also confirm that the PostHog configuration routes EU user data to an EU-hosted PostHog instance rather than the US endpoint.
 
-**Align with Drumbeat's legal documents.** I would keep up to date with our privacy policy and terms of service to make sure every data collection and processing decision in the app is covered by those documents. I would also add the current privacy policy URL to `CLAUDE.md` so any future AI-assisted development has context about what commitments the company has made to users.
+**Align with the deployment's legal documents.** Whoever deploys this should keep the app's data collection and processing in sync with their actual privacy policy and terms of service, and add the current privacy policy URL to `CLAUDE.md` so any future AI-assisted development has context about what commitments have been made to users.
 
 ---
 
@@ -312,12 +304,8 @@ The `data/creators.json` file includes avatar URLs that are example.com placehol
 
 Three supporting documents are included in this repository, each written for a different audience:
 
-- [PLANNING.md](PLANNING.md) — Written to give a bit more insight into my thought process (I realize I may have written too much here to begin with haha), and as a document to be converted into the more polished ENGINEERING.md. I had Claude add to this along the way showcasing the options I considered, and the reasoning behind each choice. This is the "why" document.
+- [PLANNING.md](PLANNING.md) — The "why" document: the product questions faced, the options considered for each, and the reasoning behind each choice.
 
-- [ENGINEERING.md](ENGINEERING.md) — Having a PDR like this is a useful platform engineering practice that allows for sharing information between engineers about the decided upon structure clear. Covers API contracts, module responsibilities, configuration reference, PostHog observability setup, and the hardening path to production.
+- [ENGINEERING.md](ENGINEERING.md) — A PRD-style spec for engineers extending this codebase. Covers API contracts, module responsibilities, configuration reference, PostHog observability setup, and the hardening path to production.
 
 - [CLAUDE.md](CLAUDE.md) — Written for Claude Code. Contains dev commands, key files, common tasks, coding rules, and an explicit list of where not to use AI in this codebase. This file shapes how the assistant thinks about contributions to the project.
-
----
-
-Thank you to Hannah and Hugh for putting together this project and giving me the opportunity to work on it. I had a genuinely good time building this, it is the kind of problem where every layer has an interesting decision in it, and I found myself going deeper than I expected on several of them. I also realizse I let this readme get a bit longer than "short" as the assignemnt requests... That being said, I cant help myself from sharing this all with you guys, and I look forward to hearing from you soon!

@@ -12,30 +12,24 @@
 
 export default function NavBar() {
   return (
-    <nav className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-drumbeat-navy px-4 sm:px-17">
+    <nav className="fixed left-0 right-0 top-0 z-50 flex h-16 items-center justify-between bg-brand-navy px-4 sm:px-17">
       {/* ── Logo ──────────────────────────────────────────────────────────── */}
       {/*
-       * PRODUCTION NOTE: This image is served from Softr's CDN, which creates
-       * a runtime dependency on their infrastructure. Before going to production,
-       * download this asset and serve it from /public/drumbeat-logo.png instead.
-       * That way the logo works even if Softr's CDN is down or rate-limits us.
+       * Text wordmark placeholder — swap for an <img> pointing at your own
+       * logo asset (e.g. /public/logo.svg) when adapting this template.
        */}
-      {/* biome-ignore lint/performance/noImgElement: logo from external CDN, see production note above */}
-      <img
-        src="https://assets.softr-files.com/applications/a2198f88-ff1f-43d0-a0c0-801d0b2cff06/assets/5d12bd26-4811-4840-8d80-bc8ceddefd87.png"
-        alt="Drumbeat"
-        style={{ height: 32, width: "auto" }}
-      />
+      <span className="text-lg font-semibold tracking-tight text-white">
+        Creator Match
+      </span>
 
       {/* ── Return Home button ────────────────────────────────────────────── */}
       {/*
-       * Plain <a> instead of Next.js <Link> because this is an external URL.
-       * <Link> is for internal Next.js routes — using it for external URLs
-       * bypasses its prefetching/routing logic in unexpected ways.
+       * Plain <a> instead of Next.js <Link> since this points at a marketing
+       * site outside the app. Swap the href for your own landing page.
        */}
       <a
-        href="https://hellodrumbeat.com/"
-        className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white px-4 py-2 text-sm font-medium text-drumbeat-navy transition-colors hover:bg-fill-hover"
+        href="/"
+        className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white px-4 py-2 text-sm font-medium text-brand-navy transition-colors hover:bg-fill-hover"
       >
         {/* Inline SVG — no file dependency, inherits text color via currentColor */}
         <svg

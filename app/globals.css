@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /**
- * Drumbeat brand theme — warm cream palette.
+ * Brand theme — warm cream palette.
  *
  * Tailwind v4 uses @theme in CSS instead of tailwind.config.ts.
  * Variables defined here become utility class suffixes automatically:
@@ -10,10 +10,10 @@
  * Design direction:
  * - Warm cream background (#fbfbef page, #fffffb cards) — clean and editorial
  * - Dark navy text (#152237) — easier to read than pure black on warm cream
- * - Pink/magenta brand accent (#b92771) — energetic, matches Drumbeat brand
+ * - Pink/magenta brand accent (#b92771) — energetic and distinct
  * - Dark navy button (#171738) — authority and contrast against cream
- * - Poppins font — matches Drumbeat's actual site font-family
- * - Pill buttons (34px radius) and rounded cards (16px) — matches Drumbeat's site
+ * - Poppins font
+ * - Pill buttons (34px radius) and rounded cards (16px)
  *
  * COLOR SYSTEM:
  * All repeating colors are defined here as CSS variables. To change any color
@@ -35,11 +35,11 @@
   --color-framing-border: #3a27d4;    /* slightly darker for the box border */
   --color-framing-text: #e8e4ff;      /* near-white, lavender-tinted body text */
 
-  /* ── Drumbeat navy ───────────────────────────────────────────────────────
+  /* ── Brand navy ──────────────────────────────────────────────────────────
      The primary dark color: navbar background, primary button, input focus border.
-     --color-drumbeat-navy auto-generates: bg-drumbeat-navy, text-drumbeat-navy,
-     border-drumbeat-navy utility classes. */
-  --color-drumbeat-navy: #171738;
+     --color-brand-navy auto-generates: bg-brand-navy, text-brand-navy,
+     border-brand-navy utility classes. */
+  --color-brand-navy: #171738;
   /* Hover state for the primary (navy) button */
   --color-navy-hover: #252558;
 
@@ -122,7 +122,7 @@
     justify-content: center;
     gap: 0.5rem;
     border-radius: 34px;
-    background-color: var(--color-drumbeat-navy);
+    background-color: var(--color-brand-navy);
     color: #ffffff;
     font-weight: 600;
     font-size: 0.9375rem;
@@ -200,7 +200,7 @@
     color: #9a9a8a;
   }
   .form-input:focus {
-    border-color: var(--color-drumbeat-navy);
+    border-color: var(--color-brand-navy);
     background-color: var(--color-fill-hover);
   }
 

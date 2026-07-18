@@ -1,7 +1,7 @@
-# Planning PRD — Drumbeat Creator Matching
+# Planning PRD — Creator Matching
 
-**Audience:** Product stakeholders, hiring reviewers, future collaborators
-**Purpose:** Document the product questions I faced, the options I considered, and why I made each choice — not just what was built, but why.
+**Audience:** Product stakeholders, engineers, future collaborators
+**Purpose:** Document the product questions faced, the options considered, and why each choice was made — not just what was built, but why.
 
 For the engineering spec (API contracts, module structure, how to add creators, how to harden for production) see [ENGINEERING.md](ENGINEERING.md).
 
@@ -9,7 +9,7 @@ For the engineering spec (API contracts, module structure, how to add creators, 
 
 ## What This Is
 
-An internal tool that matches nonprofit campaign briefs to the most semantically relevant TikTok creators in Drumbeat's network, then generates personalized post framings for each match.
+An internal tool that matches nonprofit campaign briefs to the most semantically relevant TikTok creators in a creator network, then generates personalized post framings for each match.
 
 **The core user journey:**
 1. A nonprofit describes their campaign (topic, key takeaway, constraints, optional audience/values/tone).
@@ -19,7 +19,7 @@ An internal tool that matches nonprofit campaign briefs to the most semantically
 
 ---
 
-## Questions I Faced + Decisions Made
+## Questions Faced + Decisions Made
 
 ### 1. How should matching work? Keyword search, LLM ranking, or embeddings?
 
@@ -213,7 +213,7 @@ The implementation required bubbling token usage from `embedBatch()` → `getTop
 
 ---
 
-## What I'd Do Next (1–2 More Weeks)
+## What's Next (1–2 More Weeks)
 
 **1. Stream LLM tokens word-by-word.**
 Framings appear as they're typed rather than all at once. Eliminates the shimmer wait entirely. Requires a streaming JSON parser on the server and progressive render logic on the client.
